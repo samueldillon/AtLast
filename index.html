@@ -163,6 +163,10 @@
   .words-log-points{ flex-shrink:0; color:var(--violet); font-size:calc(13px * var(--text-scale)); font-weight:700; }
   .history-trigger-row{ text-align:center; margin:4px 0 18px; }
   .history-trigger-row .status-chip{ width:auto; display:inline-flex; padding:9px 20px; }
+  .stat-mini-grid{ display:grid; grid-template-columns:repeat(2, 1fr); gap:8px; margin-bottom:14px; }
+  .stat-mini{ text-align:center; background:#FFFFFFCC; border:2px solid var(--border); border-radius:12px; padding:12px 6px; }
+  .stat-mini .num{ font-family:'Baloo 2',cursive; font-size:calc(24px * var(--text-scale)); color:var(--violet); line-height:1.1; }
+  .stat-mini .lbl{ font-family:'IBM Plex Mono',monospace; font-size:calc(10px * var(--text-scale)); text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); margin-top:4px; }
   .scoreboard-row:last-child{ border-bottom:none; }
   .scoreboard-row .pts{ font-family:'IBM Plex Mono',monospace; color:var(--violet); }
 
@@ -1074,6 +1078,65 @@ function setDailyPlayerName(name){
   try{ localStorage.setItem("endlink_daily_name", name); }catch(e){ /* ignore */ }
 }
 
+/* ---- Lifetime Daily Challenge stats ----------------------------------
+   Purely local (localStorage), one entry per calendar day played, keyed
+   by date so a duplicate submit for the same day overwrites rather than
+   double-counts. Everything in the stats popup is derived from this
+   history — nothing here depends on Firestore, so stats still work even
+   if the leaderboard/percentile fetch fails. */
+function getDailyStatsHistory(){
+  try{
+    const raw = localStorage.getItem("endlink_daily_stats");
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  }catch(e){ return []; }
+}
+function recordDailyStatsEntry(entry){
+  try{
+    const history = getDailyStatsHistory().filter(e => e.date !== entry.date);
+    history.push(entry);
+    history.sort((a,b) => a.date < b.date ? -1 : (a.date > b.date ? 1 : 0));
+    localStorage.setItem("endlink_daily_stats", JSON.stringify(history));
+  }catch(e){ /* ignore */ }
+}
+function isNextCalendarDay(a, b){
+  return (new Date(b + "T00:00:00Z") - new Date(a + "T00:00:00Z")) === 86400000;
+}
+function computeDailyStatsSummary(){
+  const history = getDailyStatsHistory();
+  if(!history.length){
+    return { gamesPlayed:0, currentStreak:0, longestStreak:0, bestFinish:null, bestNetScore:null, avgNetScore:0, longestWord:"" };
+  }
+  const dates = history.map(e => e.date).sort();
+
+  let longestStreak = 1, run = 1;
+  for(let i=1;i<dates.length;i++){
+    run = isNextCalendarDay(dates[i-1], dates[i]) ? run + 1 : 1;
+    longestStreak = Math.max(longestStreak, run);
+  }
+
+  let currentStreak = 0;
+  const lastDate = dates[dates.length - 1];
+  const todayStr = todayDateString();
+  const yesterdayStr = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  if(lastDate === todayStr || lastDate === yesterdayStr){
+    currentStreak = 1;
+    for(let i=dates.length-1; i>0; i--){
+      if(isNextCalendarDay(dates[i-1], dates[i])) currentStreak++; else break;
+    }
+  }
+
+  const finishes = history.map(e => e.percentile).filter(p => p != null);
+  const bestFinish = finishes.length ? Math.max(...finishes) : null;
+  const netScores = history.map(e => e.netScore).filter(n => typeof n === "number");
+  const bestNetScore = netScores.length ? Math.max(...netScores) : null;
+  const avgNetScore = netScores.length ? netScores.reduce((a,b)=>a+b,0) / netScores.length : 0;
+  let longestWord = "";
+  history.forEach(e => { if(e.longestWord && e.longestWord.length > longestWord.length) longestWord = e.longestWord; });
+
+  return { gamesPlayed: history.length, currentStreak, longestStreak, bestFinish, bestNetScore, avgNetScore, longestWord };
+}
+
 function startDailyGame(){
   if(dailyAlreadyPlayedToday()){
     state.screen = "dailyResult";
@@ -1111,12 +1174,21 @@ async function submitAndFetchDailyPercentile(){
   const result = { date: state.dailyDate, humanScore: you.score, cpuScore: cpu.score, netScore, name: you.name || "You" };
   storeDailyResult(result);
 
+  const yourWords = (state.wordLog || []).filter(e => e.type === "word" && e.by === you.name);
+  const longestWord = yourWords.reduce((best, e) => (e.word && e.word.length > best.length) ? e.word : best, "");
+
   state.dailyPercentile = null;
   state.dailyPlayerCount = null;
   state.dailyLeaderboard = null;
+  state.dailyFetchError = null;
   render();
 
-  if(!db){ return; } // Firebase not configured — still show the score, just no percentile/leaderboard
+  if(!db){
+    state.dailyFetchError = "not_configured";
+    recordDailyStatsEntry({ date: state.dailyDate, netScore, percentile: null, longestWord });
+    render();
+    return;
+  }
   try{
     await db.collection("daily_results").add(Object.assign({}, result, {
       clientId: getClientId(),
@@ -1124,8 +1196,10 @@ async function submitAndFetchDailyPercentile(){
     }));
     await fetchDailyPercentileOnly(state.dailyDate, netScore);
   }catch(e){
-    console.error("Daily percentile submit failed:", e);
+    console.error("Daily result submit failed:", e);
+    state.dailyFetchError = "write_failed";
   }
+  recordDailyStatsEntry({ date: state.dailyDate, netScore, percentile: state.dailyPercentile, longestWord });
   render();
 }
 
@@ -1134,7 +1208,7 @@ async function submitAndFetchDailyPercentile(){
    today (e.g. they reopened the app later the same day) so it doesn't
    double-count their result while still refreshing how it compares. */
 async function fetchDailyPercentileOnly(dateStr, netScore){
-  if(!db) return;
+  if(!db){ state.dailyFetchError = "not_configured"; return; }
   try{
     const snap = await db.collection("daily_results").where("date", "==", dateStr).get();
     const rows = snap.docs
@@ -1150,6 +1224,7 @@ async function fetchDailyPercentileOnly(dateStr, netScore){
     }
   }catch(e){
     console.error("Daily percentile fetch failed:", e);
+    state.dailyFetchError = "read_failed";
   }
 }
 
@@ -2215,6 +2290,45 @@ function wireHistoryTrigger(){
   }
 }
 
+// Daily Challenge lifetime stats — shown as a popup button on the daily
+// result screen. Purely derived from local history (see
+// computeDailyStatsSummary), so it works even if the Firestore leaderboard
+// fetch failed for this session.
+function dailyStatsTrigger(){
+  return `<div class="history-trigger-row"><button class="status-chip" id="dailyStatsBtn">Stats</button></div>`;
+}
+function wireDailyStatsTrigger(){
+  document.getElementById("dailyStatsBtn").onclick = ()=>{ state.showDailyStats = true; render(); };
+  if(state.showDailyStats){
+    document.getElementById("closeDailyStatsBtn").onclick = ()=>{ state.showDailyStats = false; render(); };
+  }
+}
+function renderDailyStatsModal(){
+  const s = computeDailyStatsSummary();
+  const body = s.gamesPlayed === 0
+    ? `<p style="color:var(--text-muted);font-weight:600;">Play your first Daily Challenge to start tracking stats.</p>`
+    : `
+      <div class="stat-mini-grid">
+        <div class="stat-mini"><div class="num">${s.gamesPlayed}</div><div class="lbl">Games Played</div></div>
+        <div class="stat-mini"><div class="num">${s.currentStreak}</div><div class="lbl">Current Streak</div></div>
+        <div class="stat-mini"><div class="num">${s.longestStreak}</div><div class="lbl">Longest Streak</div></div>
+        <div class="stat-mini"><div class="num">${s.bestFinish != null ? s.bestFinish + "%" : "—"}</div><div class="lbl">Best Finish</div></div>
+      </div>
+      <div class="scoreboard-row"><span>Best net score</span><span class="pts mono">${s.bestNetScore != null ? (s.bestNetScore > 0 ? "+" : "") + s.bestNetScore : "—"}</span></div>
+      <div class="scoreboard-row"><span>Average net score</span><span class="pts mono">${s.avgNetScore > 0 ? "+" : ""}${s.avgNetScore.toFixed(1)}</span></div>
+      <div class="scoreboard-row" style="border-bottom:none;"><span>Longest word played</span><span class="pts mono">${s.longestWord ? escapeHtml(s.longestWord) : "—"}</span></div>
+    `;
+  return `
+    <div class="modal-backdrop" id="dailyStatsBackdrop">
+      <div class="modal" style="max-width:400px;text-align:left;">
+        <h3>Your Daily Challenge Stats</h3>
+        ${body}
+        <button class="btn btn-gold" id="closeDailyStatsBtn" style="margin-top:16px;">Got it</button>
+      </div>
+    </div>
+  `;
+}
+
 function render(){
   if(state.screen !== lastChimeScreen){
     if(state.screen === "roundEnd") playRoundEndChime();
@@ -3021,9 +3135,16 @@ function renderDailyResult(){
     fetchDailyPercentileOnly(stored.date, stored.netScore).then(render);
   }
 
-  const percentileBlock = state.dailyPercentile == null
-    ? `<p style="color:var(--text-muted);font-weight:600;">Comparing you to today's other players…</p>`
-    : `<p style="color:var(--text-muted);font-weight:600;">You're in the <strong style="color:var(--violet);">${state.dailyPercentile}th percentile</strong> of ${state.dailyPlayerCount} player${state.dailyPlayerCount===1?"":"s"} today.</p>`;
+  const errorMessages = {
+    not_configured: "Leaderboard isn't set up yet — see the Firebase setup comment near the top of the file's &lt;script&gt;.",
+    write_failed: "Couldn't save your score to today's leaderboard. This usually means the <code>daily_results</code> collection needs a Firestore security rule allowing writes.",
+    read_failed: "Your score saved, but the leaderboard couldn't be loaded. This usually means the <code>daily_results</code> collection needs a Firestore security rule allowing reads.",
+  };
+  const percentileBlock = state.dailyFetchError
+    ? `<p style="color:var(--brick);font-weight:700;font-size:calc(13px * var(--text-scale));line-height:1.5;">${errorMessages[state.dailyFetchError] || "Couldn't load today's leaderboard."}</p>`
+    : state.dailyPercentile == null
+      ? `<p style="color:var(--text-muted);font-weight:600;">Comparing you to today's other players…</p>`
+      : `<p style="color:var(--text-muted);font-weight:600;">You're in the <strong style="color:var(--violet);">${state.dailyPercentile}th percentile</strong> of ${state.dailyPlayerCount} player${state.dailyPlayerCount===1?"":"s"} today.</p>`;
 
   const leaderboardBlock = !state.dailyLeaderboard ? "" : `
     <div class="panel" style="text-align:left;margin-top:14px;">
@@ -3047,6 +3168,7 @@ function renderDailyResult(){
         <p style="color:var(--text-muted);font-weight:600;margin-bottom:18px;">${escapeHtml(state.dailyDate || todayDateString())}</p>
         ${finalWordBlock()}
         ${historyTrigger()}
+        ${dailyStatsTrigger()}
         <div class="panel" style="text-align:left;margin-top:8px;">
           <h2>Result</h2>
           <div class="scoreboard-row"><span>${escapeHtml(myName)}</span><span class="pts mono">${humanScore}</span></div>
@@ -3062,11 +3184,14 @@ function renderDailyResult(){
     </div>
     ${state.showSettings ? renderSettingsModal() : ""}
     ${state.uiWordsOpen ? renderWordsModal() : ""}
+    ${state.showDailyStats ? renderDailyStatsModal() : ""}
   `;
   wireSettingsTrigger();
   wireHistoryTrigger();
+  wireDailyStatsTrigger();
   document.getElementById("dailyHomeBtn").onclick = ()=>{
     state._dailyResultSubmitted = false;
+    state.showDailyStats = false;
     state.screen = "home";
     render();
   };
