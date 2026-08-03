@@ -677,6 +677,51 @@ if(FIREBASE_CONFIGURED){
   db = firebase.firestore();
 }
 
+/* ============================= PLAYTESTING ANALYTICS =====================
+   Lightweight, fire-and-forget event log written to its own Firestore
+   collection — separate from the "rooms" collection used for live online
+   game sync, so it doesn't interfere with or get cleaned up alongside game
+   state. Works in BOTH local pass-and-play and online modes, since `db` is
+   initialized unconditionally above regardless of which mode is played.
+
+   Design notes:
+   - Never blocks or slows down gameplay: writes are async and any failure
+     (offline, permissions, etc.) is silently swallowed.
+   - Respects the Analytics toggle in Settings (opt-out, on by default) —
+     when off, logEvent() is a no-op.
+   - Every event carries a per-game sessionId (regenerated at the start of
+     each game) so events can be grouped into a single game/session later,
+     plus the play mode and whether Clock mode was active.
+   - See /mnt/user-data/outputs/analytics-dashboard.html for the companion
+     read-only dashboard that queries and charts this collection.
+============================================================================ */
+let analyticsSessionId = null;
+function newAnalyticsSession(){
+  analyticsSessionId = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+  return analyticsSessionId;
+}
+function logEvent(name, payload){
+  if(!state.analyticsEnabled || !db) return;
+  try{
+    db.collection("analytics_events").add(Object.assign({
+      event: name,
+      session: analyticsSessionId || newAnalyticsSession(),
+      mode: state.mode,
+      clockMode: !!state.clockMode,
+      playerCount: state.players ? state.players.length : null,
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    }, payload || {})).catch(()=>{ /* analytics failures must never affect gameplay */ });
+  }catch(e){ /* ignore — e.g. Firestore SDK not ready yet */ }
+}
+// Buckets where the required (core) letter ended up within a played word —
+// "did people actually use the 'anywhere in the word' rule, or just tack it
+// on the front out of habit?"
+function corePositionBucket(coreIdx, wordLen){
+  if(coreIdx <= 0) return "start";
+  if(coreIdx >= wordLen - 1) return "end";
+  return "middle";
+}
+
 /* ============================= STATE ============================= */
 
 let state = {
@@ -718,6 +763,7 @@ let state = {
   highContrast: false,    // local-only UI preference, persisted to localStorage — independent of darkMode/rainbowMode
   bigText: false,          // local-only UI preference, persisted to localStorage — independent of the others
   clockMode: false,        // local-only UI preference, persisted to localStorage — 2-min-per-game chess clock
+  analyticsEnabled: true,  // local-only UI preference, persisted to localStorage — opt-out playtesting analytics
   uiCardsOpen: false,     // local-only UI toggle — never synced online
   uiWordsOpen: false,     // local-only UI toggle — never synced online
   uiScoreboardOpen: false, // local-only UI toggle — never synced online
@@ -737,6 +783,7 @@ function loadTheme(){
     state.highContrast = localStorage.getItem("endlink_high_contrast") === "1";
     state.bigText = localStorage.getItem("endlink_big_text") === "1";
     state.clockMode = localStorage.getItem("endlink_clock_mode") === "1";
+    state.analyticsEnabled = localStorage.getItem("endlink_analytics_opt_out") !== "1";
   }catch(e){ /* localStorage unavailable — just stay in light mode */ }
   applyTheme();
 }
@@ -934,26 +981,177 @@ function checkForWinner(){
 let uid = 0;
 function nextId(){ return uid++; }
 
-function buildDeck(){
+// A tiny seedable PRNG (mulberry32) + string-to-seed hash, used only by
+// Daily Challenge mode so every player gets an identical shuffled deck (and
+// the CPU makes identical tie-break choices) on a given calendar date.
+// Every other mode still uses the browser's real Math.random via the
+// default parameter below — nothing changes for local/online play.
+function seedFromString(str){
+  let h = 1779033703 ^ str.length;
+  for(let i=0;i<str.length;i++){
+    h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  return (h ^ (h >>> 16)) >>> 0;
+}
+function mulberry32(seed){
+  let a = seed >>> 0;
+  return function(){
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function todayDateString(){
+  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD, UTC — same puzzle worldwide
+}
+
+function buildDeck(rng){
   let cards = [];
   for(const letter in LETTER_DISTRIBUTION){
     for(let i=0;i<LETTER_DISTRIBUTION[letter];i++){
       cards.push({ id: nextId(), kind:"letter", letter });
     }
   }
-  return shuffle(cards);
+  return shuffle(cards, rng);
 }
 
-function shuffle(arr){
+function shuffle(arr, rng){
+  rng = rng || Math.random;
   const a = arr.slice();
   for(let i=a.length-1;i>0;i--){
-    const j = Math.floor(Math.random()*(i+1));
+    const j = Math.floor(rng()*(i+1));
     [a[i],a[j]]=[a[j],a[i]];
   }
   return a;
 }
 
 /* ============================= GAME SETUP ============================= */
+
+/* ============================= DAILY CHALLENGE =============================
+   A 1-human-vs-1-CPU game with a deterministic, date-seeded deck so every
+   player gets the identical starting hands, wildcards, and Core Card on a
+   given day. Reuses the entire normal local-game screen flow (gate/play/
+   round-end) — "daily" behaves exactly like "local" everywhere else in the
+   app, since every other state.mode check in the codebase is specifically
+   `=== "online"` (with everything else falling into the same local-style
+   branch). The only daily-specific pieces are: seeding dealRound()/the AI's
+   word tie-breaking (above), gating one attempt per day, and — once the
+   game ends — posting the net score and showing today's percentile instead
+   of the normal win screen.
+
+   Known limitation: the human and CPU draw from ONE shared seeded deck
+   (matching how a normal 2-player game already works), so if two different
+   people play very differently — drawing a different number of bonus cards
+   at different points — the CPU can end up seeing slightly different card
+   draws deeper into the game, even though everyone's *starting* hands, the
+   starting Core Card, and the CPU's decision-making logic are identical.
+   In practice this is a fairly small effect (a card or two of drift), and
+   fixing it fully would mean giving the CPU its own separate seeded card
+   supply — a bigger change than made sense for a first version of this. */
+function dailyAlreadyPlayedToday(){
+  try{ return localStorage.getItem("endlink_daily_last_played") === todayDateString(); }
+  catch(e){ return false; }
+}
+function getStoredDailyResult(){
+  try{
+    const raw = localStorage.getItem("endlink_daily_last_result");
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+function storeDailyResult(result){
+  try{
+    localStorage.setItem("endlink_daily_last_played", todayDateString());
+    localStorage.setItem("endlink_daily_last_result", JSON.stringify(result));
+  }catch(e){ /* ignore */ }
+}
+function getDailyPlayerName(){
+  try{ return localStorage.getItem("endlink_daily_name") || ""; }
+  catch(e){ return ""; }
+}
+function setDailyPlayerName(name){
+  try{ localStorage.setItem("endlink_daily_name", name); }catch(e){ /* ignore */ }
+}
+
+function startDailyGame(){
+  if(dailyAlreadyPlayedToday()){
+    state.screen = "dailyResult";
+    render();
+    return;
+  }
+  const dateStr = todayDateString();
+  state.mode = "daily";
+  state.dailyDate = dateStr;
+  state.dailyRng = mulberry32(seedFromString("at-last-daily-" + dateStr));
+  state.players = [
+    { name: getDailyPlayerName() || "You", hand:[], wildcards:[], score:0, isCPU:false, color:PLAYER_COLORS[0], timeLeft:120, eliminated:false },
+    { name:"Computer", hand:[], wildcards:[], score:0, isCPU:true, color:PLAYER_COLORS[1], timeLeft:120, eliminated:false },
+  ];
+  state.lastRound = null;
+  state.gameWinner = null;
+  state.wordLog = [];
+  state.roundNum = 0;
+  newAnalyticsSession();
+  logEvent("game_started", { playerCount:2, cpuCount:1, clockMode:false, mode:"daily" });
+  dealRound();
+  state.currentPlayer = 0;
+  state.screen = "play";
+  triggerCorePulse();
+  render();
+}
+
+/* Posts today's result and fetches how it compares to everyone else who has
+   played today. Fire on entering the result screen; re-fetching each visit
+   keeps the percentile fresh as more people play the same puzzle. */
+async function submitAndFetchDailyPercentile(){
+  const you = state.players[0];
+  const cpu = state.players[1];
+  const netScore = you.score - cpu.score;
+  const result = { date: state.dailyDate, humanScore: you.score, cpuScore: cpu.score, netScore, name: you.name || "You" };
+  storeDailyResult(result);
+
+  state.dailyPercentile = null;
+  state.dailyPlayerCount = null;
+  state.dailyLeaderboard = null;
+  render();
+
+  if(!db){ return; } // Firebase not configured — still show the score, just no percentile/leaderboard
+  try{
+    await db.collection("daily_results").add(Object.assign({}, result, {
+      clientId: getClientId(),
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    }));
+    await fetchDailyPercentileOnly(state.dailyDate, netScore);
+  }catch(e){
+    console.error("Daily percentile submit failed:", e);
+  }
+  render();
+}
+
+/* Same percentile + leaderboard lookup as above, minus posting a new result
+   — used when showing a returning visitor's already-submitted score for
+   today (e.g. they reopened the app later the same day) so it doesn't
+   double-count their result while still refreshing how it compares. */
+async function fetchDailyPercentileOnly(dateStr, netScore){
+  if(!db) return;
+  try{
+    const snap = await db.collection("daily_results").where("date", "==", dateStr).get();
+    const rows = snap.docs
+      .map(d => d.data())
+      .filter(r => typeof r.netScore === "number");
+    if(rows.length){
+      const beatenOrTied = rows.filter(r => r.netScore <= netScore).length;
+      state.dailyPercentile = Math.round((beatenOrTied / rows.length) * 100);
+      state.dailyPlayerCount = rows.length;
+      state.dailyLeaderboard = rows
+        .sort((a,b) => b.netScore - a.netScore)
+        .map(r => ({ name: r.name || "Player", netScore: r.netScore, clientId: r.clientId || null }));
+    }
+  }catch(e){
+    console.error("Daily percentile fetch failed:", e);
+  }
+}
 
 function startGame(){
   state.players = [];
@@ -981,6 +1179,13 @@ function startGame(){
   state.lastRound = null;
   state.gameWinner = null;
   state.wordLog = [];
+  state.roundNum = 0;
+  newAnalyticsSession();
+  logEvent("game_started", {
+    playerCount: state.playerCount,
+    cpuCount: state.cpu.filter(Boolean).length,
+    clockMode: !!state.clockMode,
+  });
   dealRound();
   state.currentPlayer = 0;
   state.screen = "gate";
@@ -989,7 +1194,7 @@ function startGame(){
 
 /* rebuilds the deck and deals a fresh hand to every existing player, keeping their scores */
 function dealRound(){
-  state.deck = buildDeck();
+  state.deck = buildDeck(state.mode === "daily" ? state.dailyRng : undefined);
   state.discard = [];
 
   state.players.forEach(p=>{
@@ -1005,6 +1210,12 @@ function dealRound(){
   state.builder = [];
   state.coreInsertedAt = -1;
   state.lastPlay = null;
+
+  state.roundNum = (state.roundNum || 0) + 1;
+  logEvent("round_started", {
+    roundNum: state.roundNum,
+    coreLetter: displayLetter(state.core),
+  });
 }
 
 /* ============================= ONLINE MULTIPLAYER ============================= */
@@ -1131,6 +1342,13 @@ function startOnlineGame(){
   state.lastRound = null;
   state.gameWinner = null;
   state.wordLog = [];
+  state.roundNum = 0;
+  newAnalyticsSession();
+  logEvent("game_started", {
+    playerCount: state.players.length,
+    cpuCount: state.players.filter(pl=>pl.isCPU).length,
+    clockMode: !!state.clockMode,
+  });
   dealRound();
   state.currentPlayer = 0;
   state.screen = "onlinePlay";
@@ -1271,7 +1489,7 @@ function drawFromDeck(n=1){
   for(let i=0;i<n;i++){
     if(state.deck.length===0){
       if(state.discard.length===0) break;
-      state.deck = shuffle(state.discard);
+      state.deck = shuffle(state.discard, state.mode === "daily" ? state.dailyRng : undefined);
       state.discard = [];
     }
     if(state.deck.length>0) out.push(state.deck.shift());
@@ -1354,7 +1572,7 @@ function planAIMove(p){
   for(let len = maxLen; len >= 3; len--){
     const candidates = wordsByLength[len];
     if(!candidates || candidates.length === 0) continue;
-    const shuffled = shuffle(candidates);
+    const shuffled = shuffle(candidates, state.mode === "daily" ? state.dailyRng : undefined);
     for(const word of shuffled){
       const plan = tryPlanForWord(word, p.hand, p.wildcards, coreIsWild, coreLetter);
       if(plan) return { word, plan };
@@ -1495,6 +1713,7 @@ function clockTick(){
     p.eliminated = true;
     if(!state.wordLog) state.wordLog = [];
     state.wordLog.push({ type:"eliminated", by: p.name, color: p.color });
+    logEvent("player_eliminated", { playerIsCPU: !!p.isCPU });
 
     const remaining = state.players.filter(pl => !pl.eliminated);
     if(remaining.length <= 1){
@@ -1503,6 +1722,11 @@ function clockTick(){
       state.gameWinner = winner.name;
       state.wordLog.push({ type:"eliminationWin", by: winner.name, color: winner.color });
       state.screen = "gameOver";
+      logEvent("game_ended", {
+        winner: winner.name,
+        winMethod: "elimination",
+        totalRounds: state.roundNum,
+      });
       if(state.mode === "online") syncOnline();
       render();
       return;
@@ -1525,6 +1749,11 @@ function setClockMode(on){
   } else {
     stopClock();
   }
+}
+
+function setAnalyticsEnabled(on){
+  state.analyticsEnabled = on;
+  try{ localStorage.setItem("endlink_analytics_opt_out", on ? "0" : "1"); }catch(e){ /* ignore */ }
 }
 
 function wordString(){
@@ -1642,6 +1871,11 @@ function attemptSubmit(){
     render();
     clearTimeout(attemptSubmit._coreShakeTimer);
     attemptSubmit._coreShakeTimer = setTimeout(()=>{ state.coreShake = false; render(); }, 500);
+    logEvent("word_attempt_failed", {
+      reason: "missing_core_letter",
+      coreLetter: displayLetter(state.core),
+      attemptedWord: wordString(),
+    });
     return;
   }
   const word = wordString();
@@ -1650,6 +1884,12 @@ function attemptSubmit(){
     render();
     clearTimeout(attemptSubmit._shakeTimer);
     attemptSubmit._shakeTimer = setTimeout(()=>{ state.shakeWord = false; render(); }, 500);
+    logEvent("word_attempt_failed", {
+      reason: "not_in_dictionary",
+      coreLetter: displayLetter(state.core),
+      attemptedWord: word,
+      wordLength: word.length,
+    });
     return;
   }
   state.successWord = true;
@@ -1696,6 +1936,16 @@ function commitWord(){
     if(c.kind === "wildcard") p.wildcards = p.wildcards.filter(w => w !== c);
   });
 
+  logEvent("word_played", {
+    word,
+    wordLength: word.length,
+    points: wordPoints,
+    coreLetter: displayLetter(state.core),
+    corePosition: corePositionBucket(state.coreInsertedAt, state.builder.length),
+    wildcardsUsed: usedFromHand.filter(c => c.kind === "wildcard").length,
+    playerIsCPU: !!p.isCPU,
+  });
+
   // discard played letter cards (this feeds the reshuffle when the deck runs low).
   // Wildcards are never discarded into the letter deck — once played they're
   // simply returned to the (unlimited) Wildcard deck and cease to exist as a card.
@@ -1726,6 +1976,12 @@ function commitWord(){
     if(!state.wordLog) state.wordLog = [];
     state.wordLog.push({ type:"roundBonus", by: p.name, points: roundPoints, color: p.color });
 
+    logEvent("round_ended", {
+      roundNum: state.roundNum,
+      bonusPoints: roundPoints,
+      wildcardsHeldByLosers: state.players.filter(pl => pl !== p).map(pl => pl.wildcards.length),
+    });
+
     // Check every player's score, not just the one who emptied their hand —
     // other players' scores can also have crossed WINNING_SCORE (e.g. from
     // an earlier round) even though only p's score changed this turn.
@@ -1733,7 +1989,12 @@ function commitWord(){
 
     if(champion){
       state.gameWinner = champion.name;
-      state.screen = "gameOver";
+      state.screen = state.mode === "daily" ? "dailyResult" : "gameOver";
+      logEvent("game_ended", {
+        winner: champion.name,
+        winMethod: "score",
+        totalRounds: state.roundNum,
+      });
     } else {
       state.screen = "roundEnd";
     }
@@ -1761,12 +2022,19 @@ function drawCard(){
   const p = currentPlayer();
   if(p.wildcards.length >= 2){
     showToast("Wildcard loadout is full (2/2) — play a word instead.");
+    logEvent("wildcard_capped", { coreLetter: displayLetter(state.core), handSize: p.hand.length });
     render();
     return;
   }
   p.wildcards.push({ id: nextId(), kind:"wildcard", assignedLetter:null });
   if(!state.wordLog) state.wordLog = [];
   state.wordLog.push({ type:"wildcard", by: p.name, color: p.color });
+  logEvent("wildcard_drawn", {
+    coreLetter: displayLetter(state.core),
+    handSize: p.hand.length,
+    wildcardsHeldAfter: p.wildcards.length,
+    playerIsCPU: !!p.isCPU,
+  });
   showToast(p.name + " drew a Wildcard.");
   stopClock();
   if(state.clockMode) p.timeLeft = (p.timeLeft ?? 120) + 10;
@@ -1786,6 +2054,9 @@ function advanceTurn(){
   state.coreInsertedAt = -1;
   if(state.mode === "online"){
     syncOnline();
+  } else if(state.mode === "daily" && !currentPlayer().isCPU){
+    state.screen = "play";
+    triggerCorePulse();
   } else {
     state.screen = "gate";
   }
@@ -1925,6 +2196,7 @@ function wireSettingsTrigger(){
     document.getElementById("highContrastToggleBtn").onclick = ()=>{ setHighContrast(!state.highContrast); render(); };
     document.getElementById("bigTextToggleBtn").onclick = ()=>{ setBigText(!state.bigText); render(); };
     document.getElementById("clockToggleBtn").onclick = ()=>{ setClockMode(!state.clockMode); render(); };
+    document.getElementById("analyticsToggleBtn").onclick = ()=>{ setAnalyticsEnabled(!state.analyticsEnabled); render(); };
     document.getElementById("closeSettingsBtn").onclick = ()=>{ state.showSettings = false; render(); };
   }
 }
@@ -1946,7 +2218,7 @@ function wireHistoryTrigger(){
 function render(){
   if(state.screen !== lastChimeScreen){
     if(state.screen === "roundEnd") playRoundEndChime();
-    else if(state.screen === "gameOver") playGameEndChime();
+    else if(state.screen === "gameOver" || state.screen === "dailyResult") playGameEndChime();
     lastChimeScreen = state.screen;
   }
 
@@ -1969,6 +2241,7 @@ function render(){
   else if(state.screen === "onlinePlay") result = renderOnlinePlay();
   else if(state.screen === "roundEnd") result = renderRoundEnd();
   else if(state.screen === "gameOver") result = renderGameOver();
+  else if(state.screen === "dailyResult") result = renderDailyResult();
 
   if(modalScrollTop !== null){
     const newModal = document.querySelector(".modal");
@@ -1999,6 +2272,17 @@ function renderHome(){
           <button class="btn btn-gold" id="localBtn" style="margin-bottom:12px;">Play and Pass</button>
           <button class="btn btn-outline" id="onlineBtn">Play Online</button>
         </div>
+        <div class="panel" style="margin-top:14px;">
+          <h2>Daily Challenge</h2>
+          <p style="color:var(--text-muted);font-weight:600;font-size:calc(13px * var(--text-scale));margin-bottom:14px;">Everyone gets the same letters today. Beat the Computer, then see the leaderboard.</p>
+          ${dailyAlreadyPlayedToday() ? "" : `
+            <div class="name-row">
+              <div class="dot"></div>
+              <input id="dailyNameInput" value="${escapeAttr(getDailyPlayerName())}" placeholder="Your name (for the leaderboard)" maxlength="20" class="name-input" />
+            </div>
+          `}
+          <button class="btn btn-sage" id="dailyBtn" style="margin-top:${dailyAlreadyPlayedToday() ? "0" : "10px"};">${dailyAlreadyPlayedToday() ? "View Today's Result" : "Play Today's Puzzle"}</button>
+        </div>
         <div class="mode-toggle-row">
           <button id="rulesBtn">How to play At Last</button>
           ${settingsTrigger()}
@@ -2010,6 +2294,15 @@ function renderHome(){
   `;
   document.getElementById("localBtn").onclick = ()=>{ state.mode = "local"; state.screen = "setup"; render(); };
   document.getElementById("onlineBtn").onclick = ()=>{ state.mode = "online"; state.screen = "onlineSetup"; render(); };
+  document.getElementById("dailyBtn").onclick = ()=>{
+    const nameInput = document.getElementById("dailyNameInput");
+    if(nameInput) setDailyPlayerName(nameInput.value.trim());
+    startDailyGame();
+  };
+  const dailyNameInput = document.getElementById("dailyNameInput");
+  if(dailyNameInput){
+    dailyNameInput.oninput = (e)=>{ setDailyPlayerName(e.target.value.trim()); };
+  }
   document.getElementById("rulesBtn").onclick = ()=>{ state.showRules = true; render(); };
   if(state.showRules){
     document.getElementById("closeRulesBtn").onclick = ()=>{ state.showRules = false; render(); };
@@ -2252,8 +2545,9 @@ function renderSettingsModal(){
           <button id="bigTextToggleBtn" class="segment-btn${state.bigText ? " active" : ""}">Bigger Text</button>
         </div>
         <p class="settings-label" style="margin-top:16px;">Game Options</p>
-        <div class="settings-toggle-grid" style="grid-template-columns:1fr;">
+        <div class="settings-toggle-grid">
           <button id="clockToggleBtn" class="segment-btn${state.clockMode ? " active" : ""}">Clock</button>
+          <button id="analyticsToggleBtn" class="segment-btn${state.analyticsEnabled ? " active" : ""}">Analytics</button>
         </div>
         <button class="btn btn-gold" id="closeSettingsBtn" style="margin-top:20px;">Done</button>
       </div>
@@ -2707,6 +3001,77 @@ function renderRoundEnd(){
   }
 }
 
+function renderDailyResult(){
+  const you = state.players ? state.players[0] : null;
+  const cpu = state.players ? state.players[1] : null;
+  const stored = (you && cpu) ? null : getStoredDailyResult(); // returning visitor after a fresh page load
+  const myName = you ? you.name : (stored && stored.name ? stored.name : "You");
+  const humanScore = you ? you.score : (stored ? stored.humanScore : 0);
+  const cpuScore = cpu ? cpu.score : (stored ? stored.cpuScore : 0);
+  const netScore = humanScore - cpuScore;
+  const netLabel = netScore > 0 ? ("+" + netScore) : String(netScore);
+  const netColor = netScore > 0 ? "var(--sage)" : (netScore < 0 ? "var(--brick)" : "var(--text-muted)");
+  const myClientId = getClientId();
+
+  if(you && cpu && !state._dailyResultSubmitted){
+    state._dailyResultSubmitted = true;
+    submitAndFetchDailyPercentile();
+  } else if(stored && !state._dailyResultSubmitted){
+    state._dailyResultSubmitted = true;
+    fetchDailyPercentileOnly(stored.date, stored.netScore).then(render);
+  }
+
+  const percentileBlock = state.dailyPercentile == null
+    ? `<p style="color:var(--text-muted);font-weight:600;">Comparing you to today's other players…</p>`
+    : `<p style="color:var(--text-muted);font-weight:600;">You're in the <strong style="color:var(--violet);">${state.dailyPercentile}th percentile</strong> of ${state.dailyPlayerCount} player${state.dailyPlayerCount===1?"":"s"} today.</p>`;
+
+  const leaderboardBlock = !state.dailyLeaderboard ? "" : `
+    <div class="panel" style="text-align:left;margin-top:14px;">
+      <h2>Today's Leaderboard</h2>
+      ${state.dailyLeaderboard.map((row, i) => `
+        <div class="scoreboard-row"${row.clientId && row.clientId === myClientId ? ' style="color:var(--violet);"' : ''}>
+          <span>${i+1}. ${escapeHtml(row.name)}${row.clientId && row.clientId === myClientId ? " (you)" : ""}</span>
+          <span class="pts mono">${row.netScore > 0 ? "+" : ""}${row.netScore}</span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+
+  app.innerHTML = `
+    ${winnerSparkleField()}
+    <div class="screen">
+      <div class="wrap winscreen">
+        ${miniLogo()}
+        <div class="thread-icon">📅</div>
+        <h1>Today's Daily Challenge</h1>
+        <p style="color:var(--text-muted);font-weight:600;margin-bottom:18px;">${escapeHtml(state.dailyDate || todayDateString())}</p>
+        ${finalWordBlock()}
+        ${historyTrigger()}
+        <div class="panel" style="text-align:left;margin-top:8px;">
+          <h2>Result</h2>
+          <div class="scoreboard-row"><span>${escapeHtml(myName)}</span><span class="pts mono">${humanScore}</span></div>
+          <div class="scoreboard-row"><span>Computer</span><span class="pts mono">${cpuScore}</span></div>
+          <div class="scoreboard-row" style="border-bottom:none;"><span><strong>Net score</strong></span><span class="pts mono" style="color:${netColor};font-weight:800;">${netLabel}</span></div>
+        </div>
+        <div style="margin:16px 0;">${percentileBlock}</div>
+        ${leaderboardBlock}
+        <p style="color:var(--text-muted);font-size:calc(13px * var(--text-scale));font-weight:600;margin:16px 0;">Come back tomorrow for a new puzzle.</p>
+        <button class="btn btn-outline" id="dailyHomeBtn">Back to Home</button>
+        <div class="rules-toggle">${settingsTrigger()}</div>
+      </div>
+    </div>
+    ${state.showSettings ? renderSettingsModal() : ""}
+    ${state.uiWordsOpen ? renderWordsModal() : ""}
+  `;
+  wireSettingsTrigger();
+  wireHistoryTrigger();
+  document.getElementById("dailyHomeBtn").onclick = ()=>{
+    state._dailyResultSubmitted = false;
+    state.screen = "home";
+    render();
+  };
+}
+
 function renderGameOver(){
   const isOnline = state.mode === "online";
   const canAdvance = !isOnline || state.online.isHost;
@@ -2744,6 +3109,13 @@ function renderGameOver(){
         state.players.forEach(pl=>{ pl.score = 0; pl.timeLeft = 120; pl.eliminated = false; });
         state.gameWinner = null;
         state.wordLog = [];
+        state.roundNum = 0;
+        newAnalyticsSession();
+        logEvent("game_started", {
+          playerCount: state.players.length,
+          cpuCount: state.players.filter(pl=>pl.isCPU).length,
+          clockMode: !!state.clockMode,
+        });
         dealRound();
         state.currentPlayer = 0;
         state.screen = "onlinePlay";
