@@ -4,6 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>At Last — Prototype</title>
+<meta property="og:type" content="website">
+<meta property="og:title" content="At Last — a daily word-chain challenge">
+<meta property="og:description" content="Include the final letter of the previous word in yours. Play today's puzzle against the Computer and see how you rank.">
+<meta property="og:image" content="https://samueldillon.github.io/AtLast/og-image.png">
+<meta property="og:url" content="https://samueldillon.github.io/AtLast">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="At Last — a daily word-chain challenge">
+<meta name="twitter:description" content="Include the final letter of the previous word in yours. Play today's puzzle against the Computer and see how you rank.">
+<meta name="twitter:image" content="https://samueldillon.github.io/AtLast/og-image.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Fredoka:wght@500;600;700&family=Nunito:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <!-- Firebase (compat build — simplest for a plain script tag, no bundler) -->
@@ -775,6 +784,7 @@ let state = {
 };
 
 const WINNING_SCORE = 50;
+const GAME_URL = "https://samueldillon.github.io/AtLast";
 
 /* --- Dark mode / Rainbow mode -----------------------------------------
    Purely a display preference — lives on document.body as classes so it
@@ -1135,6 +1145,30 @@ function computeDailyStatsSummary(){
   history.forEach(e => { if(e.longestWord && e.longestWord.length > longestWord.length) longestWord = e.longestWord; });
 
   return { gamesPlayed: history.length, currentStreak, longestStreak, bestFinish, bestNetScore, avgNetScore, longestWord };
+}
+
+/* Shares today's net score. Prefers the native share sheet (navigator.share)
+   since that's what lets the link unfurl with the At Last preview image via
+   the Open Graph tags in <head> — falls back to copying the text to the
+   clipboard on desktop browsers / anywhere Web Share isn't supported. */
+async function shareDailyResult(netScore){
+  const netLabel = netScore > 0 ? ("+" + netScore) : String(netScore);
+  const text = `I scored a net score of ${netLabel} on At Last today! Do you think you can beat my score? ${GAME_URL}`;
+  if(navigator.share){
+    try{
+      await navigator.share({ text, url: GAME_URL });
+      return;
+    }catch(e){
+      if(e && e.name === "AbortError") return; // person cancelled the share sheet — not an error
+      // fall through to clipboard on any other failure
+    }
+  }
+  try{
+    await navigator.clipboard.writeText(text);
+    showToast("Copied your result to the clipboard!");
+  }catch(e){
+    showToast("Couldn't copy automatically — long-press to copy: " + text);
+  }
 }
 
 function startDailyGame(){
@@ -3163,7 +3197,6 @@ function renderDailyResult(){
     <div class="screen">
       <div class="wrap winscreen">
         ${miniLogo()}
-        <div class="thread-icon">📅</div>
         <h1>Today's Daily Challenge</h1>
         <p style="color:var(--text-muted);font-weight:600;margin-bottom:18px;">${escapeHtml(state.dailyDate || todayDateString())}</p>
         ${finalWordBlock()}
@@ -3175,6 +3208,7 @@ function renderDailyResult(){
           <div class="scoreboard-row"><span>Computer</span><span class="pts mono">${cpuScore}</span></div>
           <div class="scoreboard-row" style="border-bottom:none;"><span><strong>Net score</strong></span><span class="pts mono" style="color:${netColor};font-weight:800;">${netLabel}</span></div>
         </div>
+        <button class="btn btn-gold" id="dailyShareBtn" style="margin-top:12px;">Share Your Score</button>
         <div style="margin:16px 0;">${percentileBlock}</div>
         ${leaderboardBlock}
         <p style="color:var(--text-muted);font-size:calc(13px * var(--text-scale));font-weight:600;margin:16px 0;">Come back tomorrow for a new puzzle.</p>
@@ -3189,6 +3223,7 @@ function renderDailyResult(){
   wireSettingsTrigger();
   wireHistoryTrigger();
   wireDailyStatsTrigger();
+  document.getElementById("dailyShareBtn").onclick = ()=>{ shareDailyResult(netScore); };
   document.getElementById("dailyHomeBtn").onclick = ()=>{
     state._dailyResultSubmitted = false;
     state.showDailyStats = false;
