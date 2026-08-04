@@ -1273,6 +1273,7 @@ async function fetchDailyPercentileOnly(dateStr, netScore){
       .map(d => d.data())
       .filter(r => typeof r.netScore === "number");
     if(rows.length){
+      state.dailyFetchError = null;
       const beatenOrTied = rows.filter(r => r.netScore <= netScore).length;
       state.dailyPercentile = Math.round((beatenOrTied / rows.length) * 100);
       state.dailyPlayerCount = rows.length;
@@ -3208,6 +3209,7 @@ function renderDailyResult(){
   const netLabel = netScore > 0 ? ("+" + netScore) : String(netScore);
   const netColor = netScore > 0 ? "var(--sage)" : (netScore < 0 ? "var(--brick)" : "var(--text-muted)");
   const myClientId = getClientId();
+  const dateForFetch = state.dailyDate || (stored && stored.date) || todayDateString();
 
   if(you && cpu && !state._dailyResultSubmitted){
     state._dailyResultSubmitted = true;
@@ -3239,6 +3241,13 @@ function renderDailyResult(){
       `).join("")}
     </div>
   `;
+  const refreshBlock = state.dailyFetchError && state.dailyFetchError === "not_configured" ? "" : `
+    <div style="text-align:center;margin-top:10px;">
+      <button class="status-chip" id="dailyRefreshBtn" style="width:auto;display:inline-flex;" ${state.dailyRefreshing ? "disabled" : ""}>
+        ${state.dailyRefreshing ? "Refreshing…" : "Refresh Leaderboard"}
+      </button>
+    </div>
+  `;
 
   app.innerHTML = `
     ${winnerSparkleField()}
@@ -3259,6 +3268,7 @@ function renderDailyResult(){
         <button class="btn btn-gold" id="dailyShareBtn" style="margin-top:12px;">Share Your Score</button>
         <div style="margin:16px 0;">${percentileBlock}</div>
         ${leaderboardBlock}
+        ${refreshBlock}
         <p style="color:var(--text-muted);font-size:calc(13px * var(--text-scale));font-weight:600;margin:16px 0;">Come back tomorrow for a new puzzle.</p>
         <button class="btn btn-outline" id="dailyHomeBtn">Back to Home</button>
         <div class="rules-toggle">${settingsTrigger()}</div>
@@ -3272,6 +3282,16 @@ function renderDailyResult(){
   wireHistoryTrigger();
   wireDailyStatsTrigger();
   document.getElementById("dailyShareBtn").onclick = ()=>{ shareDailyResult(netScore); };
+  const refreshBtn = document.getElementById("dailyRefreshBtn");
+  if(refreshBtn){
+    refreshBtn.onclick = async ()=>{
+      state.dailyRefreshing = true;
+      render();
+      await fetchDailyPercentileOnly(dateForFetch, netScore);
+      state.dailyRefreshing = false;
+      render();
+    };
+  }
   document.getElementById("dailyHomeBtn").onclick = ()=>{
     state._dailyResultSubmitted = false;
     state.showDailyStats = false;
