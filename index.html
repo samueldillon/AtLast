@@ -2404,8 +2404,9 @@ function wireSettingsTrigger(){
     document.getElementById("highContrastToggleBtn").onclick = ()=>{ setHighContrast(!state.highContrast); render(); };
     document.getElementById("colorblindToggleBtn").onclick = ()=>{ setColorblindMode(!state.colorblindMode); render(); };
     document.getElementById("bigTextToggleBtn").onclick = ()=>{ setBigText(!state.bigText); render(); };
-    document.getElementById("clockToggleBtn").onclick = ()=>{ setClockMode(!state.clockMode); render(); };
-    document.getElementById("analyticsToggleBtn").onclick = ()=>{ setAnalyticsEnabled(!state.analyticsEnabled); render(); };
+    // Clock/Analytics buttons are hidden from Settings for now — see renderSettingsModal.
+    // document.getElementById("clockToggleBtn").onclick = ()=>{ setClockMode(!state.clockMode); render(); };
+    // document.getElementById("analyticsToggleBtn").onclick = ()=>{ setAnalyticsEnabled(!state.analyticsEnabled); render(); };
     document.getElementById("closeSettingsBtn").onclick = ()=>{ state.showSettings = false; render(); };
   }
 }
@@ -2794,11 +2795,15 @@ function renderSettingsModal(){
           <button id="colorblindToggleBtn" class="segment-btn${state.colorblindMode ? " active" : ""}">Colourblind Friendly</button>
           <button id="bigTextToggleBtn" class="segment-btn${state.bigText ? " active" : ""}">Bigger Text</button>
         </div>
+        <!-- Game Options section (Clock, Analytics) temporarily hidden from Settings.
+             Code kept intact below in case the Clock feature comes back — just
+             uncomment this block to restore the buttons.
         <p class="settings-label" style="margin-top:16px;">Game Options</p>
         <div class="settings-toggle-grid">
           <button id="clockToggleBtn" class="segment-btn${state.clockMode ? " active" : ""}">Clock</button>
           <button id="analyticsToggleBtn" class="segment-btn${state.analyticsEnabled ? " active" : ""}">Analytics</button>
         </div>
+        -->
         <button class="btn btn-gold" id="closeSettingsBtn" style="margin-top:20px;">Done</button>
       </div>
     </div>
