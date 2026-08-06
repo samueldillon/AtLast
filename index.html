@@ -2,8 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>At Last — Prototype</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>At Last</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>%F0%9F%A7%B5</text></svg>">
 <meta property="og:type" content="website">
 <meta property="og:title" content="At Last — a daily word-chain challenge">
 <meta property="og:description" content="Include the final letter of the previous word in yours. Play today's puzzle against the Computer and see how you rank.">
@@ -745,11 +746,24 @@ const firebaseConfig = {
   messagingSenderId: "183476461533",
   appId: "1:183476461533:web:14338d4e1d7eb7cead6034"
 };
-const FIREBASE_CONFIGURED = firebaseConfig.apiKey !== "REPLACE_WITH_YOUR_API_KEY";
 let db = null;
-if(FIREBASE_CONFIGURED){
-  firebase.initializeApp(firebaseConfig);
-  db = firebase.firestore();
+let FIREBASE_CONFIGURED = false;
+try{
+  // `firebase` comes from the two gstatic.com <script> tags above — if
+  // those fail to load (offline, blocked CDN, flaky network), `firebase`
+  // is undefined and referencing it throws. Local pass-and-play and Daily
+  // Challenge don't need Firebase at all, so a failure here should only
+  // disable online features (handled via FIREBASE_CONFIGURED/db being left
+  // false/null below), never take down the whole app.
+  if(typeof firebase !== "undefined" && firebaseConfig.apiKey !== "REPLACE_WITH_YOUR_API_KEY"){
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+    FIREBASE_CONFIGURED = true;
+  }
+}catch(e){
+  console.error("Firebase init failed — online features disabled:", e);
+  db = null;
+  FIREBASE_CONFIGURED = false;
 }
 
 /* ============================= PLAYTESTING ANALYTICS =====================
