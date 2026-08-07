@@ -1299,7 +1299,7 @@ function ordinal(n){
 function computeDailyStatsSummary(){
   const history = getDailyStatsHistory();
   if(!history.length){
-    return { gamesPlayed:0, currentStreak:0, longestStreak:0, bestFinish:null, bestNetScore:null, avgNetScore:0, longestWord:"", eightLetterWordCount:0 };
+    return { gamesPlayed:0, gamesWon:0, gamesWonPct:0, totalPoints:0, longestStreak:0, avgPoints:0, bestNetScore:null, eightLetterWordCount:0, mostRecentLongestWord:"" };
   }
   const dates = history.map(e => e.date).sort();
 
@@ -1309,27 +1309,25 @@ function computeDailyStatsSummary(){
     longestStreak = Math.max(longestStreak, run);
   }
 
-  let currentStreak = 0;
-  const lastDate = dates[dates.length - 1];
-  const todayStr = todayDateString();
-  const yesterdayStr = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-  if(lastDate === todayStr || lastDate === yesterdayStr){
-    currentStreak = 1;
-    for(let i=dates.length-1; i>0; i--){
-      if(isNextCalendarDay(dates[i-1], dates[i])) currentStreak++; else break;
-    }
-  }
+  const gamesWon = history.filter(e => typeof e.netScore === "number" && e.netScore > 0).length;
+  const gamesWonPct = Math.round((gamesWon / history.length) * 100);
 
-  const finishes = history.map(e => e.percentile).filter(p => p != null);
-  const bestFinish = finishes.length ? Math.max(...finishes) : null;
   const netScores = history.map(e => e.netScore).filter(n => typeof n === "number");
   const bestNetScore = netScores.length ? Math.max(...netScores) : null;
-  const avgNetScore = netScores.length ? netScores.reduce((a,b)=>a+b,0) / netScores.length : 0;
-  let longestWord = "";
-  history.forEach(e => { if(e.longestWord && e.longestWord.length > longestWord.length) longestWord = e.longestWord; });
+
+  // humanScore only exists on entries recorded after this stat was added —
+  // older entries are simply excluded rather than treated as zero.
+  const pointScores = history.map(e => e.humanScore).filter(n => typeof n === "number");
+  const totalPoints = pointScores.reduce((a,b) => a+b, 0);
+  const avgPoints = pointScores.length ? totalPoints / pointScores.length : 0;
+
   const eightLetterWordCount = history.reduce((sum, e) => sum + (e.eightLetterWords || 0), 0);
 
-  return { gamesPlayed: history.length, currentStreak, longestStreak, bestFinish, bestNetScore, avgNetScore, longestWord, eightLetterWordCount };
+  const lastDate = dates[dates.length - 1];
+  const mostRecentEntry = history.find(e => e.date === lastDate);
+  const mostRecentLongestWord = (mostRecentEntry && mostRecentEntry.longestWord) || "";
+
+  return { gamesPlayed: history.length, gamesWon, gamesWonPct, totalPoints, longestStreak, avgPoints, bestNetScore, eightLetterWordCount, mostRecentLongestWord };
 }
 
 /* Shares today's net score. Prefers the native share sheet (navigator.share)
@@ -1407,7 +1405,7 @@ async function submitAndFetchDailyPercentile(){
   // flaky connection) right after would never get that day recorded at all,
   // breaking their streak even though they genuinely played. The percentile
   // (unknown yet) gets filled in below once/if the fetch actually resolves.
-  recordDailyStatsEntry({ date: state.dailyDate, netScore, percentile: null, longestWord, eightLetterWords });
+  recordDailyStatsEntry({ date: state.dailyDate, netScore, humanScore: you.score, percentile: null, longestWord, eightLetterWords });
 
   state.dailyPercentile = null;
   state.dailyHighest = null;
@@ -2731,14 +2729,14 @@ function renderDailyStatsModal(){
     : `
       <div class="stat-mini-grid">
         <div class="stat-mini"><div class="num">${s.gamesPlayed}</div><div class="lbl">Games Played</div></div>
-        <div class="stat-mini"><div class="num">${s.currentStreak}</div><div class="lbl">Current Streak</div></div>
+        <div class="stat-mini"><div class="num">${s.gamesWonPct}%</div><div class="lbl">Games Won (${s.gamesWon})</div></div>
         <div class="stat-mini"><div class="num">${s.longestStreak}</div><div class="lbl">Longest Streak</div></div>
-        <div class="stat-mini"><div class="num">${s.bestFinish != null ? s.bestFinish + "%" : "—"}</div><div class="lbl">Best Finish</div></div>
+        <div class="stat-mini"><div class="num">${s.bestNetScore != null ? (s.bestNetScore > 0 ? "+" : "") + s.bestNetScore : "—"}</div><div class="lbl">Best Net Score</div></div>
       </div>
-      <div class="scoreboard-row"><span>Best net score</span><span class="pts mono">${s.bestNetScore != null ? (s.bestNetScore > 0 ? "+" : "") + s.bestNetScore : "—"}</span></div>
-      <div class="scoreboard-row"><span>Average net score</span><span class="pts mono">${s.avgNetScore > 0 ? "+" : ""}${s.avgNetScore.toFixed(1)}</span></div>
-      <div class="scoreboard-row"><span>Longest word played</span><span class="pts mono">${s.longestWord ? escapeHtml(s.longestWord) : "—"}</span></div>
-      <div class="scoreboard-row" style="border-bottom:none;"><span>8-letter words played</span><span class="pts mono">${s.eightLetterWordCount}</span></div>
+      <div class="scoreboard-row"><span>Total points</span><span class="pts mono">${s.totalPoints}</span></div>
+      <div class="scoreboard-row"><span>Average points</span><span class="pts mono">${s.avgPoints.toFixed(1)}</span></div>
+      <div class="scoreboard-row"><span>8-letter words played</span><span class="pts mono">${s.eightLetterWordCount}</span></div>
+      <div class="scoreboard-row" style="border-bottom:none;"><span>Most recent longest word</span><span class="pts mono">${s.mostRecentLongestWord ? escapeHtml(s.mostRecentLongestWord) : "—"}</span></div>
     `;
   return `
     <div class="modal-backdrop" id="dailyStatsBackdrop">
