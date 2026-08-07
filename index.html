@@ -2733,6 +2733,13 @@ function render(){
   // top, making it impossible to scroll down to the close button.
   const openModal = document.querySelector(".modal");
   const modalScrollTop = openModal ? openModal.scrollTop : null;
+  // .words-log (the Recap word list) is a second, independently-scrollable
+  // region nested inside .modal — restoring the outer modal's scrollTop
+  // above doesn't cover it, so tapping a word to expand its definition
+  // (which re-renders everything) would otherwise snap the list itself
+  // back to the top even though the modal never moved.
+  const openWordsLog = document.querySelector(".words-log");
+  const wordsLogScrollTop = openWordsLog ? openWordsLog.scrollTop : null;
 
   let result;
   if(state.screen === "home") result = renderHome();
@@ -2749,6 +2756,10 @@ function render(){
   if(modalScrollTop !== null){
     const newModal = document.querySelector(".modal");
     if(newModal) newModal.scrollTop = modalScrollTop;
+  }
+  if(wordsLogScrollTop !== null){
+    const newWordsLog = document.querySelector(".words-log");
+    if(newWordsLog) newWordsLog.scrollTop = wordsLogScrollTop;
   }
   return result;
 }
