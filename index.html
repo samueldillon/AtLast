@@ -2607,7 +2607,7 @@ function wireSettingsTrigger(){
 // write, so submitFeedback() below always shows a real success or failure
 // instead of failing silently.
 function feedbackTrigger(){
-  return `<button id="feedbackBtn">💬 Feedback</button>`;
+  return `<button id="feedbackBtn">Feedback</button>`;
 }
 function wireFeedbackTrigger(){
   document.getElementById("feedbackBtn").onclick = ()=>{
@@ -2653,7 +2653,7 @@ function submitFeedback(){
     state.showFeedback = false;
     state.feedbackDraft = { name, message: "" };
     logEvent("feedback_submitted", { hasName: !!name, messageLength: message.length });
-    showToast("Thanks — got it! 💌");
+    showToast("Thanks — got it!");
   }).catch(err=>{
     console.error("Feedback submit failed:", err);
     state.feedbackSending = false;
@@ -3101,15 +3101,15 @@ function renderFeedbackModal(){
   return `
     <div class="modal-backdrop" id="feedbackBackdrop">
       <div class="modal" style="max-width:420px;text-align:left;">
-        <h3>💬 Got Feedback?</h3>
-        <p>This game's still being playtested — tell me what's working, what's not, or what you'd love to see next. I read every note.</p>
+        <h3>Got Feedback?</h3>
+        <p>Hello, thanks for playtesting my new game.</p>
         <div class="name-row" style="margin-bottom:10px;">
           <div class="dot"></div>
           <input id="feedbackName" value="${escapeAttr(state.feedbackDraft.name)}" placeholder="Name (optional)" maxlength="30" class="name-input" />
         </div>
-        <textarea id="feedbackText" class="feedback-textarea" rows="5" maxlength="600" placeholder="Tell me what you like, don't like, or feel could be improved. I'm working on the dictionary and changing the levels of the computer.">${escapeHtml(state.feedbackDraft.message)}</textarea>
+        <textarea id="feedbackText" class="feedback-textarea" rows="5" maxlength="600" placeholder="Tell me what you like, don't like, feel could be improved, or is just broken.">${escapeHtml(state.feedbackDraft.message)}</textarea>
         ${state.feedbackError ? `<p style="color:var(--brick);font-weight:700;font-size:calc(13px * var(--text-scale));margin-top:10px;">${escapeHtml(state.feedbackError)}</p>` : ""}
-        <button class="btn btn-gold" id="sendFeedbackBtn" style="margin-top:14px;" ${state.feedbackSending ? "disabled" : ""}>${state.feedbackSending ? "Sending…" : "Send Feedback 🚀"}</button>
+        <button class="btn btn-gold" id="sendFeedbackBtn" style="margin-top:14px;" ${state.feedbackSending ? "disabled" : ""}>${state.feedbackSending ? "Sending…" : "Send Feedback"}</button>
         <div class="rules-toggle" style="margin-top:10px;"><button id="closeFeedbackBtn">Not now</button></div>
       </div>
     </div>
