@@ -1379,6 +1379,15 @@ async function submitAndFetchDailyPercentile(){
   const longestWord = yourWords.reduce((best, e) => (e.word && e.word.length > best.length) ? e.word : best, "");
   const eightLetterWords = yourWords.filter(e => e.word && e.word.length === 8).length;
 
+  // Record the local stats entry immediately, before touching the network —
+  // this is the source of truth for streaks/games-played and is documented
+  // to work independent of Firestore. If it waited on the awaits below,
+  // someone who finishes the puzzle and closes the tab (or is on a slow or
+  // flaky connection) right after would never get that day recorded at all,
+  // breaking their streak even though they genuinely played. The percentile
+  // (unknown yet) gets filled in below once/if the fetch actually resolves.
+  recordDailyStatsEntry({ date: state.dailyDate, netScore, percentile: null, longestWord, eightLetterWords });
+
   state.dailyPercentile = null;
   state.dailyPlayerCount = null;
   state.dailyLeaderboard = null;
@@ -1387,7 +1396,6 @@ async function submitAndFetchDailyPercentile(){
 
   if(!db){
     state.dailyFetchError = "not_configured";
-    recordDailyStatsEntry({ date: state.dailyDate, netScore, percentile: null, longestWord, eightLetterWords });
     render();
     return;
   }
@@ -1401,7 +1409,7 @@ async function submitAndFetchDailyPercentile(){
     console.error("Daily result submit failed:", e);
     state.dailyFetchError = "write_failed";
   }
-  recordDailyStatsEntry({ date: state.dailyDate, netScore, percentile: state.dailyPercentile, longestWord, eightLetterWords });
+  updateDailyStatsPercentile(state.dailyDate, state.dailyPercentile);
   render();
 }
 
