@@ -3101,10 +3101,9 @@ function renderFeedbackModal(){
   return `
     <div class="modal-backdrop" id="feedbackBackdrop">
       <div class="modal" style="max-width:420px;text-align:left;">
-        <h3>Got Feedback?</h3>
+        <h3>Feedback?</h3>
         <p>Hello, thanks for playtesting my new game.</p>
         <div class="name-row" style="margin-bottom:10px;">
-          <div class="dot"></div>
           <input id="feedbackName" value="${escapeAttr(state.feedbackDraft.name)}" placeholder="Name (optional)" maxlength="30" class="name-input" />
         </div>
         <textarea id="feedbackText" class="feedback-textarea" rows="5" maxlength="600" placeholder="Tell me what you like, don't like, feel could be improved, or is just broken.">${escapeHtml(state.feedbackDraft.message)}</textarea>
