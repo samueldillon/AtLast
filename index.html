@@ -1225,14 +1225,6 @@ function storeDailyResult(result){
     localStorage.setItem("endlink_daily_last_result", JSON.stringify(result));
   }catch(e){ /* ignore */ }
 }
-function getDailyPlayerName(){
-  try{ return localStorage.getItem("endlink_daily_name") || ""; }
-  catch(e){ return ""; }
-}
-function setDailyPlayerName(name){
-  try{ localStorage.setItem("endlink_daily_name", name); }catch(e){ /* ignore */ }
-}
-
 function getFeedbackName(){
   try{ return localStorage.getItem("endlink_feedback_name") || ""; }
   catch(e){ return ""; }
@@ -1275,6 +1267,16 @@ function updateDailyStatsPercentile(date, percentile){
 }
 function isNextCalendarDay(a, b){
   return (new Date(b + "T00:00:00Z") - new Date(a + "T00:00:00Z")) === 86400000;
+}
+function ordinal(n){
+  const mod100 = Math.abs(n) % 100;
+  if(mod100 >= 11 && mod100 <= 13) return n + "th";
+  switch(Math.abs(n) % 10){
+    case 1: return n + "st";
+    case 2: return n + "nd";
+    case 3: return n + "rd";
+    default: return n + "th";
+  }
 }
 function computeDailyStatsSummary(){
   const history = getDailyStatsHistory();
@@ -1348,7 +1350,7 @@ function startDailyGame(){
   state.dailyDate = dateStr;
   state.dailyRng = mulberry32(seedFromString("at-last-daily-" + dateStr));
   state.players = [
-    { name: getDailyPlayerName() || "You", hand:[], wildcards:[], score:0, isCPU:false, color:PLAYER_COLORS[0], timeLeft:120, eliminated:false },
+    { name: "You", hand:[], wildcards:[], score:0, isCPU:false, color:PLAYER_COLORS[0], timeLeft:120, eliminated:false },
     { name:"Computer", hand:[], wildcards:[], score:0, isCPU:true, cpuDifficulty:"native", color:PLAYER_COLORS[1], timeLeft:120, eliminated:false },
   ];
   state.lastRound = null;
@@ -1389,8 +1391,8 @@ async function submitAndFetchDailyPercentile(){
   recordDailyStatsEntry({ date: state.dailyDate, netScore, percentile: null, longestWord, eightLetterWords });
 
   state.dailyPercentile = null;
-  state.dailyPlayerCount = null;
-  state.dailyLeaderboard = null;
+  state.dailyHighest = null;
+  state.dailyLowest = null;
   state.dailyFetchError = null;
   render();
 
@@ -1413,25 +1415,24 @@ async function submitAndFetchDailyPercentile(){
   render();
 }
 
-/* Same percentile + leaderboard lookup as above, minus posting a new result
-   — used when showing a returning visitor's already-submitted score for
-   today (e.g. they reopened the app later the same day) so it doesn't
+/* Same percentile + today's-scores lookup as above, minus posting a new
+   result — used when showing a returning visitor's already-submitted score
+   for today (e.g. they reopened the app later the same day) so it doesn't
    double-count their result while still refreshing how it compares. */
 async function fetchDailyPercentileOnly(dateStr, netScore){
   if(!db){ state.dailyFetchError = "not_configured"; return; }
   try{
     const snap = await db.collection("daily_results").where("date", "==", dateStr).get();
-    const rows = snap.docs
+    const netScores = snap.docs
       .map(d => d.data())
-      .filter(r => typeof r.netScore === "number");
-    if(rows.length){
+      .filter(r => typeof r.netScore === "number")
+      .map(r => r.netScore);
+    if(netScores.length){
       state.dailyFetchError = null;
-      const beatenOrTied = rows.filter(r => r.netScore <= netScore).length;
-      state.dailyPercentile = Math.round((beatenOrTied / rows.length) * 100);
-      state.dailyPlayerCount = rows.length;
-      state.dailyLeaderboard = rows
-        .sort((a,b) => b.netScore - a.netScore)
-        .map(r => ({ name: r.name || "Player", netScore: r.netScore, clientId: r.clientId || null }));
+      const beatenOrTied = netScores.filter(n => n <= netScore).length;
+      state.dailyPercentile = Math.round((beatenOrTied / netScores.length) * 100);
+      state.dailyHighest = Math.max(...netScores);
+      state.dailyLowest = Math.min(...netScores);
     }
   }catch(e){
     console.error("Daily percentile fetch failed:", e);
@@ -2772,13 +2773,7 @@ function renderHome(){
         <div class="panel">
           <h2>Daily Challenge</h2>
           <p style="color:var(--text-muted);font-weight:600;font-size:calc(13px * var(--text-scale));margin-bottom:14px;">Everyone starts with the same letters against the computer. How will you do?</p>
-          ${dailyAlreadyPlayedToday() ? "" : `
-            <div class="name-row">
-              <div class="dot"></div>
-              <input id="dailyNameInput" value="${escapeAttr(getDailyPlayerName())}" placeholder="Your name (for the leaderboard)" maxlength="20" class="name-input" />
-            </div>
-          `}
-          <button class="btn btn-sage" id="dailyBtn" style="margin-top:${dailyAlreadyPlayedToday() ? "0" : "10px"};">${dailyAlreadyPlayedToday() ? "View Today's Result" : "Play Today's Puzzle"}</button>
+          <button class="btn btn-sage" id="dailyBtn">${dailyAlreadyPlayedToday() ? "View Today's Result" : "Play Today's Puzzle"}</button>
         </div>
         <div class="panel" style="margin-top:14px;">
           <h2>Other ways to play...</h2>
@@ -2798,15 +2793,7 @@ function renderHome(){
   `;
   document.getElementById("localBtn").onclick = ()=>{ state.mode = "local"; state.screen = "setup"; render(); };
   document.getElementById("onlineBtn").onclick = ()=>{ state.mode = "online"; state.screen = "onlineSetup"; render(); };
-  document.getElementById("dailyBtn").onclick = ()=>{
-    const nameInput = document.getElementById("dailyNameInput");
-    if(nameInput) setDailyPlayerName(nameInput.value.trim());
-    startDailyGame();
-  };
-  const dailyNameInput = document.getElementById("dailyNameInput");
-  if(dailyNameInput){
-    dailyNameInput.oninput = (e)=>{ setDailyPlayerName(e.target.value.trim()); };
-  }
+  document.getElementById("dailyBtn").onclick = startDailyGame;
   document.getElementById("rulesBtn").onclick = ()=>{ state.showRules = true; render(); };
   if(state.showRules){
     document.getElementById("closeRulesBtn").onclick = ()=>{ state.showRules = false; render(); };
@@ -3587,7 +3574,6 @@ function renderDailyResult(){
   const netScore = humanScore - cpuScore;
   const netLabel = netScore > 0 ? ("+" + netScore) : String(netScore);
   const netColor = netScore > 0 ? "var(--sage)" : (netScore < 0 ? "var(--brick)" : "var(--text-muted)");
-  const myClientId = getClientId();
   const dateForFetch = state.dailyDate || (stored && stored.date) || todayDateString();
 
   if(you && cpu && !state._dailyResultSubmitted){
@@ -3602,23 +3588,29 @@ function renderDailyResult(){
   }
 
   const errorMessages = {
-    not_configured: "Leaderboard isn't set up yet — see the Firebase setup comment near the top of the file's &lt;script&gt;.",
-    write_failed: "Couldn't save your score to today's leaderboard. This usually means the <code>daily_results</code> collection needs a Firestore security rule allowing writes.",
-    read_failed: "Your score saved, but the leaderboard couldn't be loaded. This usually means the <code>daily_results</code> collection needs a Firestore security rule allowing reads.",
+    not_configured: "Today's Scores isn't set up yet — see the Firebase setup comment near the top of the file's &lt;script&gt;.",
+    write_failed: "Couldn't save your score for today. This usually means the <code>daily_results</code> collection needs a Firestore security rule allowing writes.",
+    read_failed: "Your score saved, but today's scores couldn't be loaded. This usually means the <code>daily_results</code> collection needs a Firestore security rule allowing reads.",
   };
   const percentileBlock = state.dailyFetchError
-    ? `<p style="color:var(--brick);font-weight:700;font-size:calc(13px * var(--text-scale));line-height:1.5;">${errorMessages[state.dailyFetchError] || "Couldn't load today's leaderboard."}</p>`
+    ? `<p style="color:var(--brick);font-weight:700;font-size:calc(13px * var(--text-scale));line-height:1.5;">${errorMessages[state.dailyFetchError] || "Couldn't load today's scores."}</p>`
     : state.dailyPercentile == null
       ? `<p style="color:var(--text-muted);font-weight:600;">Comparing you to today's other players…</p>`
-      : `<p style="color:var(--text-muted);font-weight:600;">You're in the <strong style="color:var(--violet);">${state.dailyPercentile}th percentile</strong> of ${state.dailyPlayerCount} player${state.dailyPlayerCount===1?"":"s"} today.</p>`;
+      : `<p style="color:var(--text-muted);font-weight:600;">You're in the <strong style="color:var(--violet);">${ordinal(state.dailyPercentile)} percentile</strong> today.</p>`;
 
-  const leaderboardBlock = !state.dailyLeaderboard ? "" : `
+  const scoresBlock = (state.dailyHighest == null || state.dailyLowest == null) ? "" : `
     <div class="panel" style="text-align:left;margin-top:14px;">
-      <h2>Today's Leaderboard</h2>
-      ${state.dailyLeaderboard.map((row, i) => `
-        <div class="scoreboard-row"${row.clientId && row.clientId === myClientId ? ' style="color:var(--violet);"' : ''}>
-          <span>${i+1}. ${escapeHtml(row.name)}${row.clientId && row.clientId === myClientId ? " (you)" : ""}</span>
-          <span class="pts mono">${row.netScore > 0 ? "+" : ""}${row.netScore}</span>
+      <h2>Today's Scores</h2>
+      ${[
+        { label: "Highest", value: state.dailyHighest, mine: false },
+        { label: "Your score", value: netScore, mine: true },
+        { label: "Lowest", value: state.dailyLowest, mine: false },
+      ]
+      .sort((a, b) => b.value - a.value)
+      .map(row => `
+        <div class="scoreboard-row"${row.mine ? ' style="color:var(--violet);"' : ''}>
+          <span>${escapeHtml(row.label)}</span>
+          <span class="pts mono">${row.value > 0 ? "+" : ""}${row.value}</span>
         </div>
       `).join("")}
     </div>
@@ -3626,7 +3618,7 @@ function renderDailyResult(){
   const refreshBlock = state.dailyFetchError && state.dailyFetchError === "not_configured" ? "" : `
     <div style="text-align:center;margin-top:10px;">
       <button class="status-chip" id="dailyRefreshBtn" style="width:auto;display:inline-flex;" ${state.dailyRefreshing ? "disabled" : ""}>
-        ${state.dailyRefreshing ? "Refreshing…" : "Refresh Leaderboard"}
+        ${state.dailyRefreshing ? "Refreshing…" : "Refresh Scores"}
       </button>
     </div>
   `;
@@ -3651,7 +3643,7 @@ function renderDailyResult(){
         </div>
         <button class="btn btn-gold" id="dailyShareBtn" style="margin-top:12px;">Share Your Score</button>
         <div style="margin:16px 0;">${percentileBlock}</div>
-        ${leaderboardBlock}
+        ${scoresBlock}
         ${refreshBlock}
         <p style="color:var(--text-muted);font-size:calc(13px * var(--text-scale));font-weight:600;margin:16px 0;">Come back tomorrow for a new puzzle.</p>
         <button class="btn btn-outline" id="dailyHomeBtn">Back to Home</button>
