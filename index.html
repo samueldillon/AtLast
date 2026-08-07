@@ -121,6 +121,14 @@
   }
   .name-row input:focus{ outline:none; border-color:var(--violet); }
 
+  .feedback-textarea{
+    width:100%; min-height:110px; resize:vertical; display:block;
+    background:#FFFFFFCC; border:2px solid var(--border); border-radius:12px;
+    padding:10px 12px; color:var(--text); font-size:max(16px, calc(14px * var(--text-scale)));
+    font-family:'Nunito',sans-serif; font-weight:600; line-height:1.4;
+  }
+  .feedback-textarea:focus{ outline:none; border-color:var(--violet); }
+
   /* ---------- pass-device gate ---------- */
   .gate{ text-align:center; padding:60px 20px; }
   .gate .thread-icon{ font-size:calc(52px * var(--text-scale)); margin-bottom:18px; }
@@ -472,6 +480,8 @@
   body.dark-mode .stepper .count{ color:var(--ink); }
   body.dark-mode .name-row input{ background:rgba(255,255,255,.06); color:var(--text); border-color:var(--border); }
   body.dark-mode .name-row input::placeholder{ color:var(--text-muted); opacity:.8; }
+  body.dark-mode .feedback-textarea{ background:rgba(255,255,255,.06); color:var(--text); border-color:var(--border); }
+  body.dark-mode .feedback-textarea::placeholder{ color:var(--text-muted); opacity:.8; }
   body.dark-mode .loadout-chip{ background:rgba(255,255,255,.05); border-color:var(--border); color:var(--text-muted); }
   body.dark-mode .status-chip{ background:rgba(255,255,255,.05); border-color:var(--border); color:var(--text-muted); }
   body.dark-mode .clock-badge{ background:rgba(255,255,255,.07); border-color:var(--border); color:var(--ink); }
@@ -561,6 +571,7 @@
   body.high-contrast .modal,
   body.high-contrast .btn-outline,
   body.high-contrast .name-row input,
+  body.high-contrast .feedback-textarea,
   body.high-contrast .stepper button,
   body.high-contrast .loadout-chip,
   body.high-contrast .status-chip,
@@ -606,6 +617,7 @@
   body.high-contrast:not(.dark-mode) .btn-outline{ background:#FFFFFF; }
   body.high-contrast:not(.dark-mode) .btn-outline:hover{ background:#F0F0F0; }
   body.high-contrast:not(.dark-mode) .name-row input{ background:#FFFFFF; }
+  body.high-contrast:not(.dark-mode) .feedback-textarea{ background:#FFFFFF; }
   body.high-contrast:not(.dark-mode) .stepper button{ background:#FFFFFF; }
   body.high-contrast:not(.dark-mode) .loadout-chip{ background:#FFFFFF; }
   body.high-contrast:not(.dark-mode) .status-chip{ background:#FFFFFF; }
@@ -642,6 +654,7 @@
   body.dark-mode.high-contrast .btn-outline{ background:#000000; }
   body.dark-mode.high-contrast .btn-outline:hover{ background:#161616; }
   body.dark-mode.high-contrast .name-row input{ background:#000000; }
+  body.dark-mode.high-contrast .feedback-textarea{ background:#000000; }
   body.dark-mode.high-contrast .stepper button{ background:#000000; }
   body.dark-mode.high-contrast .loadout-chip{ background:#000000; }
   body.dark-mode.high-contrast .status-chip{ background:#000000; }
@@ -847,6 +860,10 @@ let state = {
   wordLog: [],            // [{word, by, points}] every word played this game, oldest first — reset on New Game, kept across rounds
   showRules: false,
   showSettings: false,
+  showFeedback: false,
+  feedbackDraft: { name:"", message:"" }, // local-only, keeps typed-but-unsent text across re-renders
+  feedbackError: null,
+  feedbackSending: false,
   darkMode: false,        // local-only UI preference, persisted to localStorage
   rainbowMode: false,     // local-only UI preference, persisted to localStorage — independent of darkMode
   highContrast: false,    // local-only UI preference, persisted to localStorage — independent of darkMode/rainbowMode
@@ -1171,6 +1188,14 @@ function getDailyPlayerName(){
 }
 function setDailyPlayerName(name){
   try{ localStorage.setItem("endlink_daily_name", name); }catch(e){ /* ignore */ }
+}
+
+function getFeedbackName(){
+  try{ return localStorage.getItem("endlink_feedback_name") || ""; }
+  catch(e){ return ""; }
+}
+function setFeedbackName(name){
+  try{ localStorage.setItem("endlink_feedback_name", name); }catch(e){ /* ignore */ }
 }
 
 /* ---- Lifetime Daily Challenge stats ----------------------------------
@@ -2425,6 +2450,67 @@ function wireSettingsTrigger(){
   }
 }
 
+// Feedback link + popup — reused on every screen, same pattern as
+// settingsTrigger()/wireSettingsTrigger() above. Unlike the silent
+// playtesting analytics, this is something a player deliberately chose to
+// write, so submitFeedback() below always shows a real success or failure
+// instead of failing silently.
+function feedbackTrigger(){
+  return `<button id="feedbackBtn">💬 Feedback</button>`;
+}
+function wireFeedbackTrigger(){
+  document.getElementById("feedbackBtn").onclick = ()=>{
+    state.feedbackDraft.name = state.feedbackDraft.name || getFeedbackName();
+    state.feedbackError = null;
+    state.showFeedback = true;
+    render();
+  };
+  if(state.showFeedback){
+    document.getElementById("feedbackName").oninput = (e)=>{ state.feedbackDraft.name = e.target.value; };
+    document.getElementById("feedbackText").oninput = (e)=>{ state.feedbackDraft.message = e.target.value; };
+    document.getElementById("sendFeedbackBtn").onclick = submitFeedback;
+    document.getElementById("closeFeedbackBtn").onclick = ()=>{ state.showFeedback = false; state.feedbackError = null; render(); };
+  }
+}
+
+function submitFeedback(){
+  const message = (state.feedbackDraft.message || "").trim();
+  if(!message){
+    state.feedbackError = "Add a line or two before sending — even a quick thought helps!";
+    render();
+    return;
+  }
+  if(!db){
+    state.feedbackError = "Can't reach the server right now — mind trying again in a moment?";
+    render();
+    return;
+  }
+  const name = (state.feedbackDraft.name || "").trim();
+  setFeedbackName(name);
+  state.feedbackSending = true;
+  state.feedbackError = null;
+  render();
+  db.collection("feedback").add({
+    name: name || null,
+    message,
+    screen: state.screen,
+    mode: state.mode,
+    clientId: getClientId(),
+    ts: firebase.firestore.FieldValue.serverTimestamp(),
+  }).then(()=>{
+    state.feedbackSending = false;
+    state.showFeedback = false;
+    state.feedbackDraft = { name, message: "" };
+    logEvent("feedback_submitted", { hasName: !!name, messageLength: message.length });
+    showToast("Thanks — got it! 💌");
+  }).catch(err=>{
+    console.error("Feedback submit failed:", err);
+    state.feedbackSending = false;
+    state.feedbackError = "That didn't go through — mind trying again?";
+    render();
+  });
+}
+
 // Standalone History link — used on the round-end / game-over screens, which
 // don't have the in-game Cards/Words/Scoreboard row but should still let
 // players review the word log. Shares the same renderWordsModal()/uiWordsOpen
@@ -2550,11 +2636,13 @@ function renderHome(){
         <div class="mode-toggle-row">
           <button id="rulesBtn">How to play At Last</button>
           ${settingsTrigger()}
+          ${feedbackTrigger()}
         </div>
       </div>
     </div>
     ${state.showRules ? renderRulesModal() : ""}
     ${state.showSettings ? renderSettingsModal() : ""}
+    ${state.showFeedback ? renderFeedbackModal() : ""}
   `;
   document.getElementById("localBtn").onclick = ()=>{ state.mode = "local"; state.screen = "setup"; render(); };
   document.getElementById("onlineBtn").onclick = ()=>{ state.mode = "online"; state.screen = "onlineSetup"; render(); };
@@ -2572,6 +2660,7 @@ function renderHome(){
     document.getElementById("closeRulesBtn").onclick = ()=>{ state.showRules = false; render(); };
   }
   wireSettingsTrigger();
+  wireFeedbackTrigger();
 }
 
 function renderOnlineSetup(){
@@ -2617,12 +2706,15 @@ function renderOnlineSetup(){
           &nbsp;·&nbsp;
           ${settingsTrigger()}
           &nbsp;·&nbsp;
+          ${feedbackTrigger()}
+          &nbsp;·&nbsp;
           <button id="backBtn">← Back</button>
         </div>
       </div>
     </div>
     ${state.showRules ? renderRulesModal() : ""}
     ${state.showSettings ? renderSettingsModal() : ""}
+    ${state.showFeedback ? renderFeedbackModal() : ""}
   `;
   document.getElementById("onlineName").oninput = (e)=>{ state.online.myName = e.target.value; };
   document.getElementById("joinCode").oninput = (e)=>{ state.online.joinCodeInput = e.target.value; };
@@ -2638,6 +2730,7 @@ function renderOnlineSetup(){
     document.getElementById("closeRulesBtn").onclick = ()=>{ state.showRules = false; render(); };
   }
   wireSettingsTrigger();
+  wireFeedbackTrigger();
 }
 
 function renderLobby(){
@@ -2679,6 +2772,8 @@ function renderLobby(){
           &nbsp;·&nbsp;
           ${settingsTrigger()}
           &nbsp;·&nbsp;
+          ${feedbackTrigger()}
+          &nbsp;·&nbsp;
           <button id="leaveBtn">Leave Room</button>
         </div>
       </div>
@@ -2686,6 +2781,7 @@ function renderLobby(){
     ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
     ${state.showRules ? renderRulesModal() : ""}
     ${state.showSettings ? renderSettingsModal() : ""}
+    ${state.showFeedback ? renderFeedbackModal() : ""}
   `;
   if(state.online.isHost){
     document.querySelectorAll("[data-set-cpu]").forEach(b=>{ b.onclick = ()=>setSeatCPU(parseInt(b.dataset.setCpu), true); });
@@ -2696,6 +2792,7 @@ function renderLobby(){
   document.getElementById("leaveBtn").onclick = leaveOnlineRoom;
   document.getElementById("rulesBtn").onclick = ()=>{ state.showRules = true; render(); };
   wireSettingsTrigger();
+  wireFeedbackTrigger();
   if(state.showRules){
     document.getElementById("closeRulesBtn").onclick = ()=>{ state.showRules = false; render(); };
   }
@@ -2751,12 +2848,15 @@ function renderSetup(){
           &nbsp;·&nbsp;
           ${settingsTrigger()}
           &nbsp;·&nbsp;
+          ${feedbackTrigger()}
+          &nbsp;·&nbsp;
           <button id="backBtn">← Back</button>
         </div>
       </div>
     </div>
     ${state.showRules ? renderRulesModal() : ""}
     ${state.showSettings ? renderSettingsModal() : ""}
+    ${state.showFeedback ? renderFeedbackModal() : ""}
   `;
   document.getElementById("dec").onclick = ()=>{ if(state.playerCount>2){ state.playerCount--; render(); } };
   document.getElementById("inc").onclick = ()=>{ if(state.playerCount<8){ state.playerCount++; render(); } };
@@ -2770,6 +2870,7 @@ function renderSetup(){
   document.getElementById("rulesBtn").onclick = ()=>{ state.showRules = true; render(); };
   document.getElementById("backBtn").onclick = ()=>{ state.screen = "home"; render(); };
   wireSettingsTrigger();
+  wireFeedbackTrigger();
   if(state.showRules){
     document.getElementById("closeRulesBtn").onclick = ()=>{ state.showRules = false; render(); };
   }
@@ -2824,6 +2925,25 @@ function renderSettingsModal(){
   `;
 }
 
+function renderFeedbackModal(){
+  return `
+    <div class="modal-backdrop" id="feedbackBackdrop">
+      <div class="modal" style="max-width:420px;text-align:left;">
+        <h3>💬 Got Feedback?</h3>
+        <p>This game's still being playtested — tell me what's working, what's not, or what you'd love to see next. I read every note.</p>
+        <div class="name-row" style="margin-bottom:10px;">
+          <div class="dot"></div>
+          <input id="feedbackName" value="${escapeAttr(state.feedbackDraft.name)}" placeholder="Name (optional)" maxlength="30" class="name-input" />
+        </div>
+        <textarea id="feedbackText" class="feedback-textarea" rows="5" maxlength="600" placeholder="Tell me what you like, don't like, or feel could be improved. I'm working on the dictionary and changing the levels of the computer.">${escapeHtml(state.feedbackDraft.message)}</textarea>
+        ${state.feedbackError ? `<p style="color:var(--brick);font-weight:700;font-size:calc(13px * var(--text-scale));margin-top:10px;">${escapeHtml(state.feedbackError)}</p>` : ""}
+        <button class="btn btn-gold" id="sendFeedbackBtn" style="margin-top:14px;" ${state.feedbackSending ? "disabled" : ""}>${state.feedbackSending ? "Sending…" : "Send Feedback 🚀"}</button>
+        <div class="rules-toggle" style="margin-top:10px;"><button id="closeFeedbackBtn">Not now</button></div>
+      </div>
+    </div>
+  `;
+}
+
 function renderGate(){
   const p = currentPlayer();
   if(p.isCPU){
@@ -2834,13 +2954,15 @@ function renderGate(){
           <div class="thread-icon">🤖</div>
           <h2 style="color:${playerColor(p)};">${escapeHtml(p.name)} is thinking…</h2>
           <p>Finding the best word to play.</p>
-          <div class="rules-toggle">${settingsTrigger()}</div>
+          <div class="rules-toggle">${settingsTrigger()}&nbsp;·&nbsp;${feedbackTrigger()}</div>
         </div>
       </div>
       ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
       ${state.showSettings ? renderSettingsModal() : ""}
+    ${state.showFeedback ? renderFeedbackModal() : ""}
     `;
     wireSettingsTrigger();
+  wireFeedbackTrigger();
     if(!state._aiScheduled && state._aiTurnPlayer !== state.currentPlayer){
       state._aiScheduled = true;
       const scheduledPlayer = state.currentPlayer;
@@ -2880,14 +3002,16 @@ function renderGate(){
         ` : ""}
         <p>Make sure no one else is looking at the screen.</p>
         <button class="btn btn-gold" id="revealBtn">I'm ${escapeHtml(p.name)} — Show My Hand</button>
-        <div class="rules-toggle">${settingsTrigger()}</div>
+        <div class="rules-toggle">${settingsTrigger()}&nbsp;·&nbsp;${feedbackTrigger()}</div>
       </div>
     </div>
     ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
     ${state.showSettings ? renderSettingsModal() : ""}
+    ${state.showFeedback ? renderFeedbackModal() : ""}
   `;
   document.getElementById("revealBtn").onclick = ()=>{ state.screen="play"; triggerCorePulse(); if(state.clockMode) startClock(); render(); };
   wireSettingsTrigger();
+  wireFeedbackTrigger();
 }
 
 function renderPlay(){
@@ -2965,6 +3089,8 @@ function renderPlay(){
           <button id="rulesBtn">How to play At Last</button>
           &nbsp;·&nbsp;
           ${settingsTrigger()}
+          &nbsp;·&nbsp;
+          ${feedbackTrigger()}
         </div>
       </div>
     </div>
@@ -2972,6 +3098,7 @@ function renderPlay(){
     ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
     ${state.showRules ? renderRulesModal() : ""}
     ${state.showSettings ? renderSettingsModal() : ""}
+    ${state.showFeedback ? renderFeedbackModal() : ""}
     ${state.uiCardsOpen ? renderCardsModal(cardCounts) : ""}
     ${state.uiWordsOpen ? renderWordsModal() : ""}
     ${state.uiScoreboardOpen ? renderScoreboardModal() : ""}
@@ -2996,6 +3123,7 @@ function renderPlay(){
   wireCardsAndScoreboardTriggers();
   document.getElementById("rulesBtn").onclick = ()=>{ state.showRules = true; render(); };
   wireSettingsTrigger();
+  wireFeedbackTrigger();
   if(state.showRules){
     document.getElementById("closeRulesBtn").onclick = ()=>{ state.showRules = false; render(); };
   }
@@ -3140,6 +3268,8 @@ function renderOnlinePlay(){
           &nbsp;·&nbsp;
           ${settingsTrigger()}
           &nbsp;·&nbsp;
+          ${feedbackTrigger()}
+          &nbsp;·&nbsp;
           <button id="leaveGameBtn">Leave Game</button>
         </div>
       </div>
@@ -3148,6 +3278,7 @@ function renderOnlinePlay(){
     ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
     ${state.showRules ? renderRulesModal() : ""}
     ${state.showSettings ? renderSettingsModal() : ""}
+    ${state.showFeedback ? renderFeedbackModal() : ""}
     ${state.uiCardsOpen ? renderCardsModal(opponents) : ""}
     ${state.uiWordsOpen ? renderWordsModal() : ""}
     ${state.uiScoreboardOpen ? renderScoreboardModal() : ""}
@@ -3157,6 +3288,7 @@ function renderOnlinePlay(){
   document.getElementById("rulesBtn").onclick = ()=>{ state.showRules = true; render(); };
   wireCardsAndScoreboardTriggers();
   wireSettingsTrigger();
+  wireFeedbackTrigger();
   if(state.showRules){
     document.getElementById("closeRulesBtn").onclick = ()=>{ state.showRules = false; render(); };
   }
@@ -3246,17 +3378,21 @@ function renderRoundEnd(){
           : `<p style="text-align:center;color:var(--text-muted);font-weight:700;margin-top:16px;">Waiting for the host to start the next round…</p>`}
         <div class="rules-toggle">
           ${settingsTrigger()}
+          &nbsp;·&nbsp;
+          ${feedbackTrigger()}
           ${isOnline ? `&nbsp;·&nbsp;<button id="leaveBtn3">Leave Game</button>` : ""}
         </div>
       </div>
     </div>
     ${state.showSettings ? renderSettingsModal() : ""}
+    ${state.showFeedback ? renderFeedbackModal() : ""}
     ${state.uiWordsOpen ? renderWordsModal() : ""}
   `;
   if(isOnline){
     document.getElementById("leaveBtn3").onclick = leaveOnlineRoom;
   }
   wireSettingsTrigger();
+  wireFeedbackTrigger();
   wireHistoryTrigger();
   if(canAdvance){
     document.getElementById("nextRoundBtn").onclick = ()=>{
@@ -3345,14 +3481,16 @@ function renderDailyResult(){
         ${refreshBlock}
         <p style="color:var(--text-muted);font-size:calc(13px * var(--text-scale));font-weight:600;margin:16px 0;">Come back tomorrow for a new puzzle.</p>
         <button class="btn btn-outline" id="dailyHomeBtn">Back to Home</button>
-        <div class="rules-toggle">${settingsTrigger()}</div>
+        <div class="rules-toggle">${settingsTrigger()}&nbsp;·&nbsp;${feedbackTrigger()}</div>
       </div>
     </div>
     ${state.showSettings ? renderSettingsModal() : ""}
+    ${state.showFeedback ? renderFeedbackModal() : ""}
     ${state.uiWordsOpen ? renderWordsModal() : ""}
     ${state.showDailyStats ? renderDailyStatsModal() : ""}
   `;
   wireSettingsTrigger();
+  wireFeedbackTrigger();
   wireHistoryTrigger();
   wireDailyStatsTrigger();
   document.getElementById("dailyShareBtn").onclick = ()=>{ shareDailyResult(netScore); };
@@ -3396,14 +3534,18 @@ function renderGameOver(){
           : `<p style="text-align:center;color:var(--text-muted);font-weight:700;margin-top:16px;">Waiting for the host to start a new game…</p>`}
         <div class="rules-toggle">
           ${settingsTrigger()}
+          &nbsp;·&nbsp;
+          ${feedbackTrigger()}
           ${isOnline ? `&nbsp;·&nbsp;<button id="leaveBtn2">Leave Room</button>` : ""}
         </div>
       </div>
     </div>
     ${state.showSettings ? renderSettingsModal() : ""}
+    ${state.showFeedback ? renderFeedbackModal() : ""}
     ${state.uiWordsOpen ? renderWordsModal() : ""}
   `;
   wireSettingsTrigger();
+  wireFeedbackTrigger();
   wireHistoryTrigger();
   if(canAdvance){
     document.getElementById("againBtn").onclick = ()=>{
