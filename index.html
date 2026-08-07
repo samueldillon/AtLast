@@ -1354,6 +1354,7 @@ function startDailyGame(){
     { name:"Computer", hand:[], wildcards:[], score:0, isCPU:true, cpuDifficulty:"native", color:PLAYER_COLORS[1], timeLeft:120, eliminated:false },
   ];
   state.lastRound = null;
+  state.nextStarter = 0; // round 1 of a fresh game always starts at seat 0
   state.gameWinner = null;
   state.wordLog = [];
   state.openWordDefs.clear();
@@ -1465,6 +1466,7 @@ function startGame(){
     });
   }
   state.lastRound = null;
+  state.nextStarter = 0; // round 1 of a fresh game always starts at seat 0
   state.gameWinner = null;
   state.wordLog = [];
   state.openWordDefs.clear();
@@ -1638,6 +1640,7 @@ function startOnlineGame(){
     }
   });
   state.lastRound = null;
+  state.nextStarter = 0; // round 1 of a fresh game always starts at seat 0
   state.gameWinner = null;
   state.wordLog = [];
   state.openWordDefs.clear();
@@ -2291,18 +2294,30 @@ function commitWord(){
   if(p.hand.length === 0){
     let roundPoints = 0;
     let breakdown = [];
-    let worstIdx = state.currentPlayer;
-    let worstVal = -1;
-    state.players.forEach((pl, idx)=>{
+    state.players.forEach((pl)=>{
       if(pl === p) return;
       const val = remainingHandPoints(pl);
       breakdown.push({ name: pl.name, value: val });
       roundPoints += val;
-      if(!pl.eliminated && val > worstVal){ worstVal = val; worstIdx = idx; }
     });
     p.score += roundPoints;
     state.lastRound = { winner: p.name, points: roundPoints, breakdown, word };
-    state.nextStarter = worstIdx;
+
+    // Next round starts with whoever comes right after THIS round's starter,
+    // in seat order — a fixed rotation rather than a performance-based pick
+    // (it used to be "worst remaining hand starts next round"). Simulation
+    // testing showed rotation nearly eliminates the built-in advantage of
+    // going earlier in turn order, while "worst hand" didn't correct for it
+    // at all. state.nextStarter still holds THIS round's starter here (it's
+    // only overwritten at a round boundary, right below), so rotate from
+    // that; skip over any eliminated (Clock Mode) player the same way
+    // advanceTurn() already does.
+    let rotated = (state.nextStarter + 1) % state.players.length;
+    while(state.players[rotated].eliminated && state.players.some(pl => !pl.eliminated)){
+      rotated = (rotated + 1) % state.players.length;
+    }
+    state.nextStarter = rotated;
+
     if(!state.wordLog) state.wordLog = [];
     state.wordLog.push({ type:"roundBonus", by: p.name, points: roundPoints, color: p.color });
 
@@ -3057,7 +3072,7 @@ function renderRulesModal(){
         <p style="margin-bottom:10px;"><strong>Extra letters:</strong> If you play a 4-letter word, draw 1 extra letter; a 5+ letter word draws 2. A 3-letter word draws none.</p>
         <p style="margin-bottom:10px;"><strong>Scoring your words:</strong> Every word scores one point for every letter you play, except the last letter which has to be used by the next player. Wildcards don't score points when you play them.</p>
         <p style="margin-bottom:10px;"><strong>Ending a round:</strong> When someone plays all the letters from their hand, the round ends immediately. They score one point for every letter left in everyone else's hand, plus the 5 points for every Wildcard.</p>
-        <p style="margin-bottom:0;"><strong>Next round:</strong> After a round, everyone gets a fresh hand. The player left holding the most points goes first next round. </p>
+        <p style="margin-bottom:0;"><strong>Next round:</strong> After a round, everyone gets a fresh hand. The player after whoever started this round goes first next round.</p>
         <button class="btn btn-gold" id="closeRulesBtn" style="margin-top:16px;">Got it</button>
       </div>
     </div>
@@ -3752,6 +3767,7 @@ function renderGameOver(){
         });
         dealRound();
         state.currentPlayer = 0;
+        state.nextStarter = 0; // round 1 of a fresh game always starts at seat 0
         state.screen = "onlinePlay";
         syncOnline();
         render();
