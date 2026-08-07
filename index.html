@@ -920,7 +920,24 @@ let state = {
   _aiTurnPlayer: -1, // index of the player whose AI turn is currently mid-execution, or -1
 };
 
-const WINNING_SCORE = 50;
+// The target score scales with table size: 2-player games (including Daily
+// Challenge) target 40; everything larger targets (players + 1) * 10.
+// Chosen from simulation data — a flat target across every player count made
+// round count *shrink* as more players joined (bigger round-end bonuses from
+// more opponents reach a fixed target faster), so big tables felt rushed
+// relative to a 1v1. Scaling the target keeps round count roughly level
+// (~3-5 rounds) regardless of how many are playing.
+function winningScore(playerCount){
+  const n = playerCount || 2;
+  return n === 2 ? 40 : (n + 1) * 10;
+}
+// Convenience wrapper for UI text: uses the real player count once a game
+// has started, falling back to the Setup screen's configured player count
+// (e.g. when the rules modal is opened from Home, before any game exists).
+function currentWinningScore(){
+  const n = (state.players && state.players.length) ? state.players.length : (state.playerCount || 2);
+  return winningScore(n);
+}
 const GAME_URL = "https://samueldillon.github.io/AtLast";
 
 /* --- Dark mode / Rainbow mode -----------------------------------------
@@ -1108,7 +1125,8 @@ function notifyMyTurn(){
   startTitleFlash();
 }
 
-// Returns the highest-scoring player who has reached WINNING_SCORE, or null.
+// Returns the highest-scoring player who has reached this game's target
+// score (see winningScore() above), or null.
 // Used both at round-end and after ordinary word plays, since a player's
 // score can cross the threshold either way (round-end bonus points, or
 // plain per-word points on a turn where their hand doesn't empty).
@@ -1116,7 +1134,7 @@ function checkForWinner(){
   const active = state.players.filter(pl => !pl.eliminated);
   if(!active.length) return null;
   const maxScore = Math.max(...active.map(pl => pl.score));
-  if(maxScore < WINNING_SCORE) return null;
+  if(maxScore < winningScore(state.players.length)) return null;
   const tied = active.filter(pl => pl.score === maxScore);
   if(tied.length === 1) return tied[0];
 
@@ -2328,7 +2346,7 @@ function commitWord(){
     });
 
     // Check every player's score, not just the one who emptied their hand —
-    // other players' scores can also have crossed WINNING_SCORE (e.g. from
+    // other players' scores can also have crossed the target score (e.g. from
     // an earlier round) even though only p's score changed this turn.
     const champion = checkForWinner();
 
@@ -2570,7 +2588,7 @@ function renderScoreboardModal(){
       <div class="modal" style="max-width:420px;text-align:left;">
         <h2 style="font-size:calc(15px * var(--text-scale));text-transform:uppercase;letter-spacing:.06em;color:var(--violet);margin-bottom:14px;font-family:'Baloo 2',cursive;font-weight:700;">Scoreboard</h2>
         ${scoreboardRows()}
-        <p style="color:var(--text-muted);font-size:calc(13px * var(--text-scale));font-weight:600;margin:14px 0 0;">Race to ${WINNING_SCORE} points.</p>
+        <p style="color:var(--text-muted);font-size:calc(13px * var(--text-scale));font-weight:600;margin:14px 0 0;">Race to ${currentWinningScore()} points.</p>
         <button class="btn btn-gold" id="closeScoreboardBtn" style="margin-top:16px;">Got it</button>
       </div>
     </div>
@@ -3066,7 +3084,7 @@ function renderRulesModal(){
     <div class="modal-backdrop" id="rulesBackdrop">
       <div class="modal" style="max-width:440px;text-align:left;">
         <h3>How to Play At Last</h3>
-        <p style="margin-bottom:10px;"><strong>Goal:</strong> Play all the letters from your hand. The first player to ${WINNING_SCORE} points wins.</p>
+        <p style="margin-bottom:10px;"><strong>Goal:</strong> Play all the letters from your hand. The first player to ${currentWinningScore()} points wins.</p>
         <p style="margin-bottom:10px;"><strong>On Your Turn:</strong> Either play a word or draw a Wildcard. You start with 2 Wildcards, and that's the maximum you're allowed to hold at one time.</p>
         <p style="margin-bottom:10px;"><strong>Playing a word:</strong> Each word has to be between 3 and 8 letters, and contain the last letter from the previous played word.</p>
         <p style="margin-bottom:10px;"><strong>Extra letters:</strong> If you play a 4-letter word, draw 1 extra letter; a 5+ letter word draws 2. A 3-letter word draws none.</p>
@@ -3556,7 +3574,7 @@ function renderRoundEnd(){
           <h2>Scoreboard</h2>
           ${scoreboardRows()}
         </div>
-        <p style="color:var(--text-muted);font-size:calc(13px * var(--text-scale));font-weight:600;margin:14px 0 0;">First to ${WINNING_SCORE} wins the game.</p>
+        <p style="color:var(--text-muted);font-size:calc(13px * var(--text-scale));font-weight:600;margin:14px 0 0;">First to ${currentWinningScore()} wins the game.</p>
         ${canAdvance
           ? `<button class="btn btn-gold" id="nextRoundBtn" style="margin-top:16px;">Next Round</button>`
           : `<p style="text-align:center;color:var(--text-muted);font-weight:700;margin-top:16px;">Waiting for the host to start the next round…</p>`}
@@ -3728,7 +3746,7 @@ function renderGameOver(){
         <h1>${escapeHtml(state.gameWinner)} wins the game!</h1>
         ${finalWordBlock()}
         ${historyTrigger()}
-        <p style="color:var(--text-muted);margin-bottom:20px;font-weight:600;">First to reach ${WINNING_SCORE} points.</p>
+        <p style="color:var(--text-muted);margin-bottom:20px;font-weight:600;">First to reach ${currentWinningScore()} points.</p>
         <div class="panel" style="text-align:left;">
           <h2>Final Scores</h2>
           ${scoreboardRows()}
