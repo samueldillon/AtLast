@@ -3557,7 +3557,19 @@ function renderRoundEnd(){
       dealRound();
       state.currentPlayer = state.nextStarter;
       state.lastRound = null;
-      state.screen = isOnline ? "onlinePlay" : "gate";
+      // Mirrors advanceTurn()'s screen logic: Daily Challenge is always one
+      // human + the CPU on a single device, so there's never a real "pass
+      // the device" handoff needed when the human starts the next round —
+      // skip straight to play. The CPU still gets its normal "thinking"
+      // gate screen when it's the one starting.
+      if(isOnline){
+        state.screen = "onlinePlay";
+      } else if(state.mode === "daily" && !currentPlayer().isCPU){
+        state.screen = "play";
+        triggerCorePulse();
+      } else {
+        state.screen = "gate";
+      }
       syncOnline();
       render();
     };
