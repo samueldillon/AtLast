@@ -176,6 +176,17 @@
   .cards-row{ padding:9px 0; border-bottom:1px solid var(--line); }
   .cards-row-name{ font-weight:700; font-size:calc(15px * var(--text-scale)); }
   .cards-row-stats{ font-size:calc(13px * var(--text-scale)); color:var(--text-muted); font-weight:600; margin-top:3px; }
+  .word-term{
+    background:none; border:none; padding:0; margin:0; font-family:inherit; cursor:pointer;
+    text-decoration:underline; text-decoration-style:dotted; text-decoration-color:var(--text-muted);
+    text-underline-offset:3px; text-align:left; color:inherit;
+  }
+  .word-term:active{ opacity:.7; }
+  .word-def{
+    margin-top:6px; font-size:calc(12.5px * var(--text-scale)); color:var(--text-muted);
+    font-weight:600; line-height:1.5; background:var(--panel-2); border-radius:8px; padding:8px 10px;
+  }
+  .word-def-muted{ font-style:italic; }
   .words-log{ max-height:260px; overflow-y:auto; -webkit-overflow-scrolling:touch; margin:0 -4px; padding:0 4px; }
   .words-log .cards-row:last-child{ border-bottom:none; }
   .words-log-top{ display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
@@ -874,6 +885,7 @@ let state = {
   uiCardsOpen: false,     // local-only UI toggle — never synced online
   uiWordsOpen: false,     // local-only UI toggle — never synced online
   uiScoreboardOpen: false, // local-only UI toggle — never synced online
+  openWordDefs: new Set(), // local-only — indices into wordLog whose definition is expanded in Recap
   _aiTurnPlayer: -1, // index of the player whose AI turn is currently mid-execution, or -1
 };
 
@@ -1300,6 +1312,7 @@ function startDailyGame(){
   state.lastRound = null;
   state.gameWinner = null;
   state.wordLog = [];
+  state.openWordDefs.clear();
   state.roundNum = 0;
   newAnalyticsSession();
   logEvent("game_started", { playerCount:2, cpuCount:1, clockMode:false, mode:"daily" });
@@ -1402,6 +1415,7 @@ function startGame(){
   state.lastRound = null;
   state.gameWinner = null;
   state.wordLog = [];
+  state.openWordDefs.clear();
   state.roundNum = 0;
   newAnalyticsSession();
   logEvent("game_started", {
@@ -1565,6 +1579,7 @@ function startOnlineGame(){
   state.lastRound = null;
   state.gameWinner = null;
   state.wordLog = [];
+  state.openWordDefs.clear();
   state.roundNum = 0;
   newAnalyticsSession();
   logEvent("game_started", {
@@ -2341,12 +2356,78 @@ function renderCardsModal(players){
   `;
 }
 
+/* ============================= WORD DEFINITIONS ============================
+   Short glosses for the Recap popup — tap a played word to see what it means.
+   Sourced from the Open English Wordnet (https://en-word.net, CC BY 4.0):
+   built ahead of time into definitions.json, a flat WORD -> short-definition
+   map covering this game's own DICTIONARY. Not every word has an entry —
+   OEWN is a general-purpose lexical resource, and this game's word list
+   includes plenty of obscure/technical Scrabble-legal words it simply
+   doesn't define; tapping one of those shows a plain "no definition found"
+   instead of an error.
+   Fetched lazily — only once someone actually taps a word — then cached in
+   memory (WORD_DEFINITIONS) for the rest of the session, so it's one fetch
+   per visit rather than per word. Kept as a separate file instead of inline
+   in this HTML (like the embedded DICTIONARY above) so it doesn't weigh
+   down every page load — most sessions never open Recap at all. */
+let WORD_DEFINITIONS = null;
+let definitionsLoadPromise = null;
+let definitionsError = null;
+
+function loadDefinitions(){
+  if(WORD_DEFINITIONS) return Promise.resolve(WORD_DEFINITIONS);
+  if(definitionsLoadPromise) return definitionsLoadPromise;
+  definitionsError = null;
+  definitionsLoadPromise = fetch("definitions.json")
+    .then(res => { if(!res.ok) throw new Error("HTTP " + res.status); return res.json(); })
+    .then(data => { WORD_DEFINITIONS = data; return data; })
+    .catch(err => {
+      definitionsLoadPromise = null;
+      definitionsError = err;
+      throw err;
+    });
+  return definitionsLoadPromise;
+}
+
+function toggleWordDef(idx){
+  if(state.openWordDefs.has(idx)){
+    state.openWordDefs.delete(idx);
+    render();
+    return;
+  }
+  state.openWordDefs.add(idx);
+  render();
+  loadDefinitions().then(render).catch(render);
+}
+
+function wordDefContent(word){
+  if(WORD_DEFINITIONS){
+    const def = WORD_DEFINITIONS[word.toUpperCase()];
+    return def
+      ? escapeHtml(def)
+      : `<span class="word-def-muted">No definition found for "${escapeHtml(word)}".</span>`;
+  }
+  if(definitionsError){
+    return `<span class="word-def-muted">Couldn't load definitions — check your connection.</span>`;
+  }
+  return `<span class="word-def-muted">Loading definition…</span>`;
+}
+
+function wireWordDefToggles(){
+  document.querySelectorAll("[data-def-idx]").forEach(el=>{
+    el.onclick = ()=>{ toggleWordDef(parseInt(el.dataset.defIdx)); };
+  });
+}
+
 function wordLogRows(){
   if(!state.wordLog || !state.wordLog.length){
     return `<p style="color:var(--text-muted);font-weight:600;">No words played yet.</p>`;
   }
-  // newest first, so the most recent play is visible without scrolling
-  return state.wordLog.slice().reverse().map(entry => entry.type === "wildcard" ? `
+  // newest first, so the most recent play is visible without scrolling —
+  // i is each entry's stable position in state.wordLog itself (not its
+  // position in this reversed list), so an expanded definition stays
+  // attached to the right row as new words get added to the log.
+  return state.wordLog.map((entry, i) => [i, entry]).reverse().map(([i, entry]) => entry.type === "wildcard" ? `
     <div class="cards-row">
       <div class="words-log-top">
         <span class="cards-row-name">🎴 Drew a Wildcard</span>
@@ -2378,10 +2459,11 @@ function wordLogRows(){
   ` : `
     <div class="cards-row">
       <div class="words-log-top">
-        <span class="cards-row-name">${escapeHtml(entry.word)}</span>
+        <button class="cards-row-name word-term" data-def-idx="${i}">${escapeHtml(entry.word)}</button>
         <span class="words-log-points mono" style="color:${entry.color || 'var(--violet)'};">+${entry.points} point${entry.points===1?"":"s"}</span>
       </div>
       <div class="cards-row-stats" style="color:${entry.color || 'var(--text-muted)'};">${escapeHtml(entry.by)}</div>
+      ${state.openWordDefs.has(i) ? `<div class="word-def">${wordDefContent(entry.word)}</div>` : ""}
     </div>
   `).join("");
 }
@@ -2392,6 +2474,7 @@ function renderWordsModal(){
       <div class="modal" style="max-width:420px;text-align:left;">
         <h2 style="font-size:calc(15px * var(--text-scale));text-transform:uppercase;letter-spacing:.06em;color:var(--violet);margin-bottom:14px;font-family:'Baloo 2',cursive;font-weight:700;">Recap</h2>
         <div class="words-log">${wordLogRows()}</div>
+        <p style="color:var(--text-muted);font-size:calc(10.5px * var(--text-scale));font-weight:600;margin:10px 0 0;">Tap a word for its definition. Definitions from <a href="https://en-word.net" target="_blank" rel="noopener" style="color:inherit;">Open English WordNet</a> (CC BY 4.0).</p>
         <button class="btn btn-gold" id="closeWordsBtn" style="margin-top:16px;">Got it</button>
       </div>
     </div>
@@ -2420,6 +2503,7 @@ function wireCardsAndScoreboardTriggers(){
   }
   if(state.uiWordsOpen){
     document.getElementById("closeWordsBtn").onclick = ()=>{ state.uiWordsOpen = false; render(); };
+    wireWordDefToggles();
   }
   if(state.uiScoreboardOpen){
     document.getElementById("closeScoreboardBtn").onclick = ()=>{ state.uiScoreboardOpen = false; render(); };
@@ -2522,6 +2606,7 @@ function wireHistoryTrigger(){
   document.getElementById("historyBtn").onclick = ()=>{ state.uiWordsOpen = true; render(); };
   if(state.uiWordsOpen){
     document.getElementById("closeWordsBtn").onclick = ()=>{ state.uiWordsOpen = false; render(); };
+    wireWordDefToggles();
   }
 }
 
@@ -3553,6 +3638,7 @@ function renderGameOver(){
         state.players.forEach(pl=>{ pl.score = 0; pl.timeLeft = 120; pl.eliminated = false; });
         state.gameWinner = null;
         state.wordLog = [];
+        state.openWordDefs.clear();
         state.roundNum = 0;
         newAnalyticsSession();
         logEvent("game_started", {
