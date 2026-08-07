@@ -1262,6 +1262,17 @@ function recordDailyStatsEntry(entry){
     localStorage.setItem("endlink_daily_stats", JSON.stringify(history));
   }catch(e){ /* ignore */ }
 }
+/* Refreshes just the percentile on an already-recorded day, leaving its
+   netScore/longestWord/eightLetterWords alone — used when someone revisits
+   a day's result later on (state.wordLog from that round is long gone by
+   then, so there's nothing else to recompute) and the percentile has moved
+   since more people played. No-ops if that day was never recorded, or if
+   the fresh fetch didn't come back with a number. */
+function updateDailyStatsPercentile(date, percentile){
+  if(percentile == null) return;
+  const entry = getDailyStatsHistory().find(e => e.date === date);
+  if(entry) recordDailyStatsEntry(Object.assign({}, entry, { percentile }));
+}
 function isNextCalendarDay(a, b){
   return (new Date(b + "T00:00:00Z") - new Date(a + "T00:00:00Z")) === 86400000;
 }
@@ -3577,7 +3588,10 @@ function renderDailyResult(){
     submitAndFetchDailyPercentile();
   } else if(stored && !state._dailyResultSubmitted){
     state._dailyResultSubmitted = true;
-    fetchDailyPercentileOnly(stored.date, stored.netScore).then(render);
+    fetchDailyPercentileOnly(stored.date, stored.netScore).then(()=>{
+      updateDailyStatsPercentile(stored.date, state.dailyPercentile);
+      render();
+    });
   }
 
   const errorMessages = {
