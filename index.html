@@ -1292,16 +1292,6 @@ function updateDailyStatsPercentile(date, percentile){
 function isNextCalendarDay(a, b){
   return (new Date(b + "T00:00:00Z") - new Date(a + "T00:00:00Z")) === 86400000;
 }
-function ordinal(n){
-  const mod100 = Math.abs(n) % 100;
-  if(mod100 >= 11 && mod100 <= 13) return n + "th";
-  switch(Math.abs(n) % 10){
-    case 1: return n + "st";
-    case 2: return n + "nd";
-    case 3: return n + "rd";
-    default: return n + "th";
-  }
-}
 function computeDailyStatsSummary(){
   const history = getDailyStatsHistory();
   if(!history.length){
@@ -1414,6 +1404,7 @@ async function submitAndFetchDailyPercentile(){
   recordDailyStatsEntry({ date: state.dailyDate, netScore, humanScore: you.score, percentile: null, longestWord, eightLetterWords });
 
   state.dailyPercentile = null;
+  state.dailyBeatComputerPct = null;
   state.dailyHighest = null;
   state.dailyLowest = null;
   state.dailyFetchError = null;
@@ -1454,6 +1445,8 @@ async function fetchDailyPercentileOnly(dateStr, netScore){
       state.dailyFetchError = null;
       const beatenOrTied = netScores.filter(n => n <= netScore).length;
       state.dailyPercentile = Math.round((beatenOrTied / netScores.length) * 100);
+      const beatComputer = netScores.filter(n => n > 0).length;
+      state.dailyBeatComputerPct = Math.round((beatComputer / netScores.length) * 100);
       state.dailyHighest = Math.max(...netScores);
       state.dailyLowest = Math.min(...netScores);
     }
@@ -3654,9 +3647,9 @@ function renderDailyResult(){
   };
   const percentileBlock = state.dailyFetchError
     ? `<p style="color:var(--brick);font-weight:700;font-size:calc(13px * var(--text-scale));line-height:1.5;">${errorMessages[state.dailyFetchError] || "Couldn't load today's scores."}</p>`
-    : state.dailyPercentile == null
+    : state.dailyBeatComputerPct == null
       ? `<p style="color:var(--text-muted);font-weight:600;">Comparing you to today's other players…</p>`
-      : `<p style="color:var(--text-muted);font-weight:600;">You're in the <strong style="color:var(--violet);">${ordinal(state.dailyPercentile)} percentile</strong> today.</p>`;
+      : `<p style="color:var(--text-muted);font-weight:600;"><strong style="color:var(--violet);">${state.dailyBeatComputerPct}%</strong> of people beat the computer today.</p>`;
 
   const scoresBlock = (state.dailyHighest == null || state.dailyLowest == null) ? "" : `
     <div class="panel" style="text-align:left;margin-top:14px;">
