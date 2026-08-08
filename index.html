@@ -1010,6 +1010,12 @@ function playerColor(pl){
   return (pl && pl.color) || "var(--violet)";
 }
 
+// The Daily Challenge (and solo seats generally) name the human player
+// "You" — "You's turn" reads as a typo, so special-case the possessive.
+function turnLabel(name){
+  return name === "You" ? "Your turn" : `${escapeHtml(name)}'s turn`;
+}
+
 /* --- Chimes & alerts --------------------------------------------------
    Three distinct WebAudio chimes, all played on a single persistent
    AudioContext that's unlocked by the player's very first tap on the page
@@ -3255,7 +3261,7 @@ function renderPlay(){
       <div class="wrap">
         ${miniLogo()}
         <div class="board-top">
-          <div class="who" style="color:${playerColor(p)};">${escapeHtml(p.name)}'s turn</div>
+          <div class="who" style="color:${playerColor(p)};">${turnLabel(p.name)}</div>
           ${state.clockMode ? `<div class="clock-badge${(p.timeLeft ?? 120) <= 20 ? " low" : ""}">⏱ ${formatClock(p.timeLeft ?? 120)}</div>` : ""}
         </div>
 
@@ -3442,7 +3448,7 @@ function renderOnlinePlay(){
       <div class="wrap">
         ${miniLogo()}
         <div class="board-top">
-          <div class="who" style="color:${playerColor(turnPlayer)};">${escapeHtml(turnPlayer.name)}'s turn</div>
+          <div class="who" style="color:${playerColor(turnPlayer)};">${turnLabel(turnPlayer.name)}</div>
           ${state.clockMode ? `<div class="clock-badge${(turnPlayer.timeLeft ?? 120) <= 20 ? " low" : ""}">⏱ ${formatClock(turnPlayer.timeLeft ?? 120)}</div>` : ""}
         </div>
 
