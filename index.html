@@ -3081,13 +3081,13 @@ function renderRulesModal(){
     <div class="modal-backdrop" id="rulesBackdrop">
       <div class="modal" style="max-width:440px;text-align:left;">
         <h3>How to Play At Last</h3>
-        <p style="margin-bottom:10px;"><strong>Goal:</strong> Play all the letters from your hand. The first player to ${currentWinningScore()} points wins.</p>
-        <p style="margin-bottom:10px;"><strong>On Your Turn:</strong> Either play a word or draw a Wildcard. You start with 2 Wildcards, and that's the maximum you're allowed to hold at one time.</p>
-        <p style="margin-bottom:10px;"><strong>Playing a word:</strong> Each word has to be between 3 and 8 letters, and contain the last letter from the previous played word.</p>
-        <p style="margin-bottom:10px;"><strong>Extra letters:</strong> If you play a 4-letter word, draw 1 extra letter; a 5+ letter word draws 2. A 3-letter word draws none.</p>
-        <p style="margin-bottom:10px;"><strong>Scoring your words:</strong> Every word scores one point for every letter you play, except the last letter which has to be used by the next player. Wildcards don't score points when you play them.</p>
-        <p style="margin-bottom:10px;"><strong>Ending a round:</strong> When someone plays all the letters from their hand, the round ends immediately. They score one point for every letter left in everyone else's hand, plus the 5 points for every Wildcard.</p>
-        <p style="margin-bottom:0;"><strong>Next round:</strong> After a round, everyone gets a fresh hand. The player after whoever started this round goes first next round.</p>
+        <p style="margin-bottom:10px;"><strong>Goal:</strong> Play all the letters from your hand. The first player to reach ${currentWinningScore()} points at the end of the round wins.</p>
+        <p style="margin-bottom:10px;"><strong>On Your Turn:</strong> Either play a word or draw a Wildcard. You start with 2 Wildcards, and that's the maximum you can hold at a time.</p>
+        <p style="margin-bottom:10px;"><strong>Playing a word:</strong> Each word must be 3 to 8 letters long and include the last letter of the previously played word.</p>
+        <p style="margin-bottom:10px;"><strong>Extra letters:</strong> A 3-letter word draws no extra letters. A 4-letter word draws 1. A 5+ letter word draws 2.</p>
+        <p style="margin-bottom:10px;"><strong>Scoring your words:</strong> Every word scores one point for each letter you play, except the last letter, which carries over to the next player's word. Wildcards never score points when played in a word.</p>
+        <p style="margin-bottom:10px;"><strong>Ending a round:</strong> When someone plays every letter in their hand, the round ends immediately. They score one point for each letter still in everyone else's hands, plus 5 points for each Wildcard those players are holding.</p>
+        <p style="margin-bottom:0;"><strong>Next round:</strong> After each round, everyone gets a fresh hand. The player to the left of the person who went first in the last round plays the first word.</p>
         <button class="btn btn-gold" id="closeRulesBtn" style="margin-top:16px;">Got it</button>
       </div>
     </div>
