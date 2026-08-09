@@ -2855,7 +2855,7 @@ function renderOnlineSetup(){
         <div class="panel">
           <h2>${invited ? "Join the Game" : "Play Online"}</h2>
           ${warn}
-          ${invited ? `<p style="color:var(--text-muted);font-size:calc(13px * var(--text-scale));font-weight:600;margin-bottom:10px;">You've been invited to room <b>${escapeHtml(state.online.joinCodeInput)}</b> — just add your name and tap Join.</p>` : ""}
+          ${invited ? `<p style="color:var(--text-muted);font-size:calc(13px * var(--text-scale));font-weight:600;margin-bottom:10px;">You've been invited to room <b>${escapeHtml(state.online.joinCodeInput)}</b> — just add your name and tap Join Room.</p>` : ""}
           <div class="name-row">
             <div class="dot"></div>
             <input value="${escapeAttr(state.online.myName)}" placeholder="Your name" id="onlineName" class="name-input" />
