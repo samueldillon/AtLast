@@ -1190,6 +1190,18 @@ function todayDateString(){
   return new Date().toISOString().slice(0, 10); // YYYY-MM-DD, UTC — same puzzle worldwide
 }
 
+const WEEKDAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+// Formats a YYYY-MM-DD date string (as returned by todayDateString) into
+// "Sunday 9 August 2026". Reads the date's UTC components rather than the
+// browser's local timezone, since the daily puzzle's date boundary is
+// itself defined in UTC — using local time here could show the wrong day
+// for anyone west of UTC late at night.
+function formatDailyDate(dateStr){
+  const d = new Date(dateStr + "T00:00:00Z");
+  return `${WEEKDAY_NAMES[d.getUTCDay()]} ${d.getUTCDate()} ${MONTH_NAMES[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
 function buildDeck(rng){
   let cards = [];
   for(const letter in LETTER_DISTRIBUTION){
@@ -3642,7 +3654,7 @@ function renderDailyResult(){
   const errorMessages = {
     not_configured: "Today's Scores isn't set up yet — see the Firebase setup comment near the top of the file's &lt;script&gt;.",
     write_failed: "Couldn't save your score for today. This usually means the <code>daily_results</code> collection needs a Firestore security rule allowing writes.",
-    read_failed: "Your score saved, but today's scores couldn't be loaded. This usually means the <code>daily_results</code> collection needs a Firestore security rule allowing reads.",
+    read_failed: "Your score was saved, but today's scores couldn't be loaded. This usually means the <code>daily_results</code> collection needs a Firestore security rule allowing reads.",
   };
   const percentileBlock = state.dailyFetchError
     ? `<p style="color:var(--brick);font-weight:700;font-size:calc(13px * var(--text-scale));line-height:1.5;">${errorMessages[state.dailyFetchError] || "Couldn't load today's scores."}</p>`
@@ -3680,8 +3692,8 @@ function renderDailyResult(){
     <div class="screen">
       <div class="wrap winscreen">
         ${miniLogo()}
-        <h1>Today's Daily Challenge</h1>
-        <p style="color:var(--text-muted);font-weight:600;margin-bottom:18px;">${escapeHtml(state.dailyDate || todayDateString())}</p>
+        <h1>Daily Challenge Results</h1>
+        <p style="color:var(--text-muted);font-weight:600;margin-bottom:18px;">${escapeHtml(formatDailyDate(state.dailyDate || todayDateString()))}</p>
         ${finalWordBlock()}
         <div class="history-trigger-row" style="display:flex;gap:10px;justify-content:center;">
           <button class="status-chip" id="historyBtn" style="width:auto;display:inline-flex;justify-content:center;text-align:center;">Recap</button>
