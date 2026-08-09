@@ -1971,7 +1971,7 @@ function playAITurn(){
   if(p.wildcards.length < 2){
     drawCard();
   } else {
-    showToast(p.name + " couldn't find a play and passes.");
+    showToast(p.name + " couldn't find a play and passed.");
     advanceTurn();
   }
   state._aiTurnPlayer = -1;
@@ -2119,7 +2119,7 @@ function addHandCardToBuilder(card){
 }
 
 function insertCoreIntoBuilder(){
-  if(state.coreInsertedAt !== -1){ showToast("Core Card already placed in your word."); return; }
+  if(state.coreInsertedAt !== -1){ showToast("Already placed in your word."); return; }
   if(state.core.kind !== "letter" && !state.core.assignedLetter){
     state.pendingWildAssign = { forCore:true, card: state.core };
     render();
@@ -2213,7 +2213,7 @@ function attemptSubmit(){
   if(!canSubmit()) return;
   if(state.coreInsertedAt === -1){
     state.coreShake = true;
-    showToast("Add the Core Card to your word first");
+    showToast("Include the last letter of the previously played word.");
     render();
     clearTimeout(attemptSubmit._coreShakeTimer);
     attemptSubmit._coreShakeTimer = setTimeout(()=>{ state.coreShake = false; render(); }, 500);
@@ -2381,7 +2381,7 @@ function drawCard(){
   if(!onlineTurnAuthorized()) return;
   const p = currentPlayer();
   if(p.wildcards.length >= 2){
-    showToast("Wildcard loadout is full (2/2) — play a word instead.");
+    showToast("You already have 2 Wildcards. Play a word instead.");
     logEvent("wildcard_capped", { coreLetter: displayLetter(state.core), handSize: p.hand.length });
     render();
     return;
@@ -3272,7 +3272,7 @@ function renderPlay(){
           <div class="btn-row" style="margin-top:8px;gap:6px;">
             <button class="btn btn-outline btn-small" id="drawBtn" style="flex:1;" ${p.wildcards.length>=2?'disabled':''}>Wildcard</button>
             <button class="btn btn-outline btn-small" id="shuffleBtn" style="flex:1;" ${p.hand.length<2?'disabled':''}>Shuffle</button>
-            <button class="btn btn-outline btn-small" id="undoBtn" style="flex:1;" ${state.builder.length===0?'disabled':''}>Delete</button>
+            <button class="btn btn-outline btn-small" id="undoBtn" style="flex:1;" ${state.builder.length===0?'disabled':''}>Undo</button>
             <button class="btn btn-gold btn-small" id="submitBtn" style="flex:1;" ${submitDisabled?'disabled':''}>Play</button>
           </div>
         </div>
@@ -3412,7 +3412,7 @@ function renderOnlinePlay(){
         <div class="btn-row" style="margin-top:8px;gap:6px;">
           <button class="btn btn-outline btn-small" id="drawBtn" style="flex:1;" ${me.wildcards.length>=2?'disabled':''}>Wildcard</button>
           <button class="btn btn-outline btn-small" id="shuffleBtn" style="flex:1;" ${me.hand.length<2?'disabled':''}>Shuffle</button>
-          <button class="btn btn-outline btn-small" id="undoBtn" style="flex:1;" ${state.builder.length===0?'disabled':''}>Delete</button>
+          <button class="btn btn-outline btn-small" id="undoBtn" style="flex:1;" ${state.builder.length===0?'disabled':''}>Undo</button>
           <button class="btn btn-gold btn-small" id="submitBtn" style="flex:1;" ${submitDisabled?'disabled':''}>Play</button>
         </div>
       </div>
