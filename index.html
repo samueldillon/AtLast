@@ -868,20 +868,21 @@ function corePositionBucket(coreIdx, wordLen){
 /* ============================= STATE ============================= */
 
 let state = {
-  screen: "home",        // home | onlineSetup | lobby | setup | gate | play | onlinePlay | roundEnd | gameOver
+  screen: "home",        // home | lobby | setup | gate | play | onlinePlay | roundEnd | gameOver
   mode: "local",         // "local" (pass & play) | "online" (each on own phone, via Firebase)
+  showCreateOnlineModal: false,
+  showJoinOnlineModal: false,
   online: {
     code: null,            // room code, e.g. "BQXT"
     clientId: null,        // stable per-device id, persisted in localStorage
     mySeat: -1,             // my index into state.players once a game starts
     isHost: false,
     seats: [],              // [{name, isCPU, clientId}] mirrors the lobby doc
-    maxPlayers: 4,
+    maxPlayers: 2,
     myName: "",
     joinCodeInput: "",
     error: null,
     unsub: null,            // Firestore listener detach function
-    fromInvite: false,      // true if this phone opened via a shared invite link
   },
   playerCount: 2,
   names: ["Player 1","Player 2","Player 3","Player 4"],
@@ -1583,6 +1584,7 @@ function createRoom(){
     state.online.mySeat = 0;
     state.online.isHost = true;
     state.online.error = null;
+    state.showCreateOnlineModal = false;
     state.screen = "lobby";
     listenToRoom(code);
     render();
@@ -1620,6 +1622,7 @@ function joinRoom(){
     state.online.mySeat = seatIdx;
     state.online.isHost = (clientId === hostClientId);
     state.online.error = null;
+    state.showJoinOnlineModal = false;
     state.screen = "lobby";
     listenToRoom(code);
     render();
@@ -1646,6 +1649,26 @@ function setSeatDifficulty(seatIdx, level){
   if(!seats[seatIdx] || !seats[seatIdx].isCPU) return;
   seats[seatIdx] = Object.assign({}, seats[seatIdx], { difficulty: level });
   db.collection("rooms").doc(state.online.code).update({ seats });
+}
+
+/* host-only: grow or shrink the room's total seat count from inside the
+   Lobby. Growing just appends an empty seat. Shrinking always removes from
+   the end, and refuses if that last seat currently has a real connected
+   player sitting in it — it's fine to bump a CPU or an empty seat, but
+   never silently evict a person. */
+function adjustOnlineSeatCount(delta){
+  if(!state.online.isHost) return;
+  const seats = state.online.seats.slice();
+  const newCount = seats.length + delta;
+  if(newCount < 2 || newCount > 8) return;
+  if(delta > 0){
+    seats.push({ name: null, isCPU: false, clientId: null });
+  } else {
+    const last = seats[seats.length - 1];
+    if(last && last.clientId && !last.isCPU) return;
+    seats.pop();
+  }
+  db.collection("rooms").doc(state.online.code).update({ seats, maxPlayers: seats.length });
 }
 
 /* host-only: deal the first hand and move the room from "lobby" to "playing" */
@@ -1691,9 +1714,8 @@ function listenToRoom(code){
   if(state.online.unsub) state.online.unsub();
   state.online.unsub = db.collection("rooms").doc(code).onSnapshot(doc=>{
     if(!doc.exists){
-      state.online.error = "This room no longer exists.";
-      state.screen = "onlineSetup";
-      render();
+      showToast("This room no longer exists.");
+      leaveOnlineRoom();
       return;
     }
     const data = doc.data();
@@ -1760,7 +1782,9 @@ function leaveOnlineRoom(){
   if(state.online.unsub){ state.online.unsub(); }
   localStorage.removeItem("endlink_online_session");
   state.mode = "local";
-  state.online = { code:null, clientId:null, mySeat:-1, isHost:false, seats:[], maxPlayers:4, myName:"", joinCodeInput:"", error:null, unsub:null, fromInvite:false };
+  state.online = { code:null, clientId:null, mySeat:-1, isHost:false, seats:[], maxPlayers:2, myName:"", joinCodeInput:"", error:null, unsub:null };
+  state.showCreateOnlineModal = false;
+  state.showJoinOnlineModal = false;
   state.screen = "home";
   render();
 }
@@ -2785,7 +2809,6 @@ function render(){
 
   let result;
   if(state.screen === "home") result = renderHome();
-  else if(state.screen === "onlineSetup") result = renderOnlineSetup();
   else if(state.screen === "lobby") result = renderLobby();
   else if(state.screen === "setup") result = renderSetup();
   else if(state.screen === "gate") result = renderGate();
@@ -2831,7 +2854,8 @@ function renderHome(){
         <div class="panel" style="margin-top:14px;">
           <h2>More Ways to Play</h2>
           <button class="btn btn-gold" id="localBtn" style="margin-bottom:12px;">Play and Pass</button>
-          <button class="btn btn-outline" id="onlineBtn">Play Online</button>
+          <button class="btn btn-outline" id="createOnlineBtn" style="margin-bottom:12px;">Create Online Game</button>
+          <button class="btn btn-outline" id="joinOnlineBtn">Join Online Game</button>
         </div>
         <div class="mode-toggle-row">
           <button id="rulesBtn">How to Play At Last</button>
@@ -2843,9 +2867,12 @@ function renderHome(){
     ${state.showRules ? renderRulesModal() : ""}
     ${state.showSettings ? renderSettingsModal() : ""}
     ${state.showFeedback ? renderFeedbackModal() : ""}
+    ${state.showCreateOnlineModal ? renderCreateOnlineModal() : ""}
+    ${state.showJoinOnlineModal ? renderJoinOnlineModal() : ""}
   `;
   document.getElementById("localBtn").onclick = ()=>{ state.mode = "local"; state.screen = "setup"; render(); };
-  document.getElementById("onlineBtn").onclick = ()=>{ state.mode = "online"; state.screen = "onlineSetup"; render(); };
+  document.getElementById("createOnlineBtn").onclick = ()=>{ state.mode = "online"; state.online.error = null; state.showCreateOnlineModal = true; render(); };
+  document.getElementById("joinOnlineBtn").onclick = ()=>{ state.mode = "online"; state.online.error = null; state.showJoinOnlineModal = true; render(); };
   document.getElementById("dailyBtn").onclick = startDailyGame;
   document.getElementById("rulesBtn").onclick = ()=>{ state.showRules = true; render(); };
   if(state.showRules){
@@ -2853,76 +2880,8 @@ function renderHome(){
   }
   wireSettingsTrigger();
   wireFeedbackTrigger();
-}
-
-function renderOnlineSetup(){
-  const warn = !FIREBASE_CONFIGURED
-    ? `<p style="color:var(--brick);font-weight:700;font-size:calc(13px * var(--text-scale));margin-bottom:10px;">Firebase isn't set up yet — see the setup comment near the top of the file's &lt;script&gt; for a step-by-step walkthrough, then paste your config into firebaseConfig.</p>`
-    : "";
-  const invited = state.online.fromInvite;
-  app.innerHTML = `
-    <div class="screen">
-      <div class="wrap">
-        ${miniLogo()}
-        <div class="panel">
-          <h2>${invited ? "Join the Game" : "Play Online"}</h2>
-          ${warn}
-          ${invited ? `<p style="color:var(--text-muted);font-size:calc(13px * var(--text-scale));font-weight:600;margin-bottom:10px;">You've been invited to room <b>${escapeHtml(state.online.joinCodeInput)}</b> — just add your name and tap Join Room.</p>` : ""}
-          <div class="name-row">
-            <div class="dot"></div>
-            <input value="${escapeAttr(state.online.myName)}" placeholder="Your name" id="onlineName" class="name-input" />
-          </div>
-        </div>
-        <div class="panel">
-          <h2>Join a Room</h2>
-          <div class="name-row">
-            <div class="dot"></div>
-            <input value="${escapeAttr(state.online.joinCodeInput)}" placeholder="4-letter room code" id="joinCode" class="name-input" style="text-transform:uppercase;" />
-          </div>
-          <button class="btn btn-gold" id="joinBtn">Join Room</button>
-        </div>
-        ${invited ? "" : `
-        <div class="panel">
-          <h2>Create a Room</h2>
-          <div class="stepper">
-            <button id="dec">–</button>
-            <div class="count mono">${state.online.maxPlayers}</div>
-            <button id="inc">+</button>
-          </div>
-          <p style="text-align:center;color:var(--text-muted);font-size:calc(12px * var(--text-scale));font-weight:600;margin:6px 0 14px;">total seats (mix of people and 🤖 Computers)</p>
-          <button class="btn btn-outline" id="createBtn">Create Room</button>
-        </div>`}
-        ${state.online.error ? `<p style="color:var(--brick);font-weight:700;font-size:calc(13px * var(--text-scale));text-align:center;margin-top:10px;">${escapeHtml(state.online.error)}</p>` : ""}
-        <div class="rules-toggle">
-          <button id="rulesBtn">How to Play At Last</button>
-          &nbsp;·&nbsp;
-          ${settingsTrigger()}
-          &nbsp;·&nbsp;
-          ${feedbackTrigger()}
-          &nbsp;·&nbsp;
-          <button id="backBtn">← Back</button>
-        </div>
-      </div>
-    </div>
-    ${state.showRules ? renderRulesModal() : ""}
-    ${state.showSettings ? renderSettingsModal() : ""}
-    ${state.showFeedback ? renderFeedbackModal() : ""}
-  `;
-  document.getElementById("onlineName").oninput = (e)=>{ state.online.myName = e.target.value; };
-  document.getElementById("joinCode").oninput = (e)=>{ state.online.joinCodeInput = e.target.value; };
-  document.getElementById("joinBtn").onclick = joinRoom;
-  if(!invited){
-    document.getElementById("dec").onclick = ()=>{ if(state.online.maxPlayers>2){ state.online.maxPlayers--; render(); } };
-    document.getElementById("inc").onclick = ()=>{ if(state.online.maxPlayers<8){ state.online.maxPlayers++; render(); } };
-    document.getElementById("createBtn").onclick = createRoom;
-  }
-  document.getElementById("backBtn").onclick = ()=>{ state.online.fromInvite = false; state.screen = "home"; render(); };
-  document.getElementById("rulesBtn").onclick = ()=>{ state.showRules = true; render(); };
-  if(state.showRules){
-    document.getElementById("closeRulesBtn").onclick = ()=>{ state.showRules = false; render(); };
-  }
-  wireSettingsTrigger();
-  wireFeedbackTrigger();
+  if(state.showCreateOnlineModal) wireCreateOnlineModal();
+  if(state.showJoinOnlineModal) wireJoinOnlineModal();
 }
 
 function renderLobby(){
@@ -2947,6 +2906,8 @@ function renderLobby(){
     return `<div class="scoreboard-row"><span>${label}</span><span>${action}</span></div>${diffRow}`;
   }).join("");
   const allFilled = seats.length>0 && seats.every(s=>s.clientId || s.isCPU);
+  const lastSeat = seats[seats.length - 1];
+  const lastSeatIsHuman = !!(lastSeat && lastSeat.clientId && !lastSeat.isCPU);
 
   app.innerHTML = `
     <div class="screen">
@@ -2959,6 +2920,13 @@ function renderLobby(){
         </div>
         <div class="panel">
           <h2>Players</h2>
+          ${state.online.isHost ? `
+            <div class="stepper" style="margin-bottom:14px;">
+              <button id="seatDec" ${(seats.length<=2 || lastSeatIsHuman) ? 'disabled' : ''}>–</button>
+              <div class="count mono">${seats.length}</div>
+              <button id="seatInc" ${seats.length>=8 ? 'disabled' : ''}>+</button>
+            </div>
+          ` : ""}
           ${rows}
         </div>
         ${state.online.isHost
@@ -2988,6 +2956,10 @@ function renderLobby(){
     });
     const startBtn = document.getElementById("startOnlineBtn");
     if(startBtn) startBtn.onclick = startOnlineGame;
+    const seatDecBtn = document.getElementById("seatDec");
+    const seatIncBtn = document.getElementById("seatInc");
+    if(seatDecBtn) seatDecBtn.onclick = ()=>adjustOnlineSeatCount(-1);
+    if(seatIncBtn) seatIncBtn.onclick = ()=>adjustOnlineSeatCount(1);
   }
   document.getElementById("leaveBtn").onclick = leaveOnlineRoom;
   document.getElementById("rulesBtn").onclick = ()=>{ state.showRules = true; render(); };
@@ -3152,6 +3124,55 @@ function renderFeedbackModal(){
       </div>
     </div>
   `;
+}
+
+function renderCreateOnlineModal(){
+  return `
+    <div class="modal-backdrop" id="createOnlineBackdrop">
+      <div class="modal" style="max-width:400px;text-align:left;">
+        <h3>Create Online Game</h3>
+        <div class="name-row" style="margin-bottom:10px;">
+          <input value="${escapeAttr(state.online.myName)}" placeholder="Your name" id="createOnlineName" class="name-input" />
+        </div>
+        ${state.online.error ? `<p style="color:var(--brick);font-weight:700;font-size:calc(13px * var(--text-scale));margin-bottom:10px;">${escapeHtml(state.online.error)}</p>` : ""}
+        <button class="btn btn-gold" id="createOnlineConfirmBtn">Create Room</button>
+        <div class="rules-toggle" style="margin-top:10px;"><button id="closeCreateOnlineBtn">Cancel</button></div>
+      </div>
+    </div>
+  `;
+}
+function wireCreateOnlineModal(){
+  document.getElementById("createOnlineName").oninput = (e)=>{ state.online.myName = e.target.value; };
+  document.getElementById("createOnlineConfirmBtn").onclick = ()=>{
+    state.online.maxPlayers = 2;
+    createRoom();
+  };
+  document.getElementById("closeCreateOnlineBtn").onclick = ()=>{ state.showCreateOnlineModal = false; state.online.error = null; render(); };
+}
+
+function renderJoinOnlineModal(){
+  return `
+    <div class="modal-backdrop" id="joinOnlineBackdrop">
+      <div class="modal" style="max-width:400px;text-align:left;">
+        <h3>Join Online Game</h3>
+        <div class="name-row" style="margin-bottom:10px;">
+          <input value="${escapeAttr(state.online.myName)}" placeholder="Your name" id="joinOnlineName" class="name-input" />
+        </div>
+        <div class="name-row" style="margin-bottom:10px;">
+          <input value="${escapeAttr(state.online.joinCodeInput)}" placeholder="4-letter room code" id="joinOnlineCode" class="name-input" style="text-transform:uppercase;" />
+        </div>
+        ${state.online.error ? `<p style="color:var(--brick);font-weight:700;font-size:calc(13px * var(--text-scale));margin-bottom:10px;">${escapeHtml(state.online.error)}</p>` : ""}
+        <button class="btn btn-gold" id="joinOnlineConfirmBtn">Join Room</button>
+        <div class="rules-toggle" style="margin-top:10px;"><button id="closeJoinOnlineBtn">Cancel</button></div>
+      </div>
+    </div>
+  `;
+}
+function wireJoinOnlineModal(){
+  document.getElementById("joinOnlineName").oninput = (e)=>{ state.online.myName = e.target.value; };
+  document.getElementById("joinOnlineCode").oninput = (e)=>{ state.online.joinCodeInput = e.target.value; };
+  document.getElementById("joinOnlineConfirmBtn").onclick = joinRoom;
+  document.getElementById("closeJoinOnlineBtn").onclick = ()=>{ state.showJoinOnlineModal = false; state.online.error = null; render(); };
 }
 
 function renderGate(){
@@ -3830,9 +3851,8 @@ function escapeAttr(s){ return escapeHtml(s); }
 const inviteCode = getRoomCodeFromURL();
 if(inviteCode){
   state.mode = "online";
-  state.screen = "onlineSetup";
   state.online.joinCodeInput = inviteCode;
-  state.online.fromInvite = true;
+  state.showJoinOnlineModal = true;
 }
 loadTheme();
 tryResumeSession();
