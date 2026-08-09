@@ -3565,7 +3565,7 @@ function renderRoundEnd(){
         <h1>${escapeHtml(lr.winner)} wins the round!</h1>
         ${finalWordBlock()}
         ${historyTrigger()}
-        <p style="color:var(--text-muted);margin-bottom:20px;font-weight:600;">Hand emptied first — scores +${lr.points} from everyone else's leftover cards.</p>
+        <p style="color:var(--text-muted);margin-bottom:20px;font-weight:600;">${escapeHtml(lr.winner)} scores +${lr.points} from everyone else's leftover cards.</p>
         <div class="panel" style="text-align:left;">
           <h2>Scoreboard</h2>
           ${scoreboardRows()}
