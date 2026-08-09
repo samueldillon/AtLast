@@ -2925,7 +2925,7 @@ function renderLobby(){
       if(state.online.isHost) action = `<button class="btn-small btn-outline" data-unset-cpu="${i}">Remove</button>`;
     } else {
       label = "Waiting for player…";
-      if(state.online.isHost) action = `<button class="btn-small btn-outline" data-set-cpu="${i}">Fill with 🤖</button>`;
+      if(state.online.isHost) action = `<button class="btn-small btn-outline" data-set-cpu="${i}">Add Computer 🤖</button>`;
     }
     const diffRow = (s.isCPU && state.online.isHost) ? `
       <div class="diff-row" style="margin-left:0;">
@@ -2943,7 +2943,6 @@ function renderLobby(){
         <div class="panel" style="text-align:center;">
           <h2>Room Code</h2>
           <div class="count mono" style="font-size:calc(36px * var(--text-scale));letter-spacing:.1em;">${state.online.code||""}</div>
-          <p style="color:var(--text-muted);font-size:calc(13px * var(--text-scale));font-weight:600;margin-top:6px;">Share this code, or send the link below — either way, new players land in this room.</p>
           <button class="btn btn-outline" id="copyLinkBtn" style="margin-top:10px;">Copy Invite Link</button>
         </div>
         <div class="panel">
