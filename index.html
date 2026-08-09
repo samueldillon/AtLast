@@ -2744,10 +2744,10 @@ function renderDailyStatsModal(){
         <div class="stat-mini"><div class="num">${s.longestStreak}</div><div class="lbl">Longest Streak</div></div>
         <div class="stat-mini"><div class="num">${s.bestNetScore != null ? (s.bestNetScore > 0 ? "+" : "") + s.bestNetScore : "—"}</div><div class="lbl">Best Net Score</div></div>
       </div>
-      <div class="scoreboard-row"><span>Total points</span><span class="pts mono">${s.totalPoints}</span></div>
-      <div class="scoreboard-row"><span>Average points</span><span class="pts mono">${s.avgPoints.toFixed(1)}</span></div>
-      <div class="scoreboard-row"><span>8-letter words played</span><span class="pts mono">${s.eightLetterWordCount}</span></div>
-      <div class="scoreboard-row" style="border-bottom:none;"><span>Most recent longest word</span><span class="pts mono">${s.mostRecentLongestWord ? escapeHtml(s.mostRecentLongestWord) : "—"}</span></div>
+      <div class="scoreboard-row"><span>Total Points</span><span class="pts mono">${s.totalPoints}</span></div>
+      <div class="scoreboard-row"><span>Average Points</span><span class="pts mono">${s.avgPoints.toFixed(1)}</span></div>
+      <div class="scoreboard-row"><span>8-Letter Words Played</span><span class="pts mono">${s.eightLetterWordCount}</span></div>
+      <div class="scoreboard-row" style="border-bottom:none;"><span>Most Recent Longest Word</span><span class="pts mono">${s.mostRecentLongestWord ? escapeHtml(s.mostRecentLongestWord) : "—"}</span></div>
     `;
   return `
     <div class="modal-backdrop" id="dailyStatsBackdrop">
@@ -3697,7 +3697,7 @@ function renderDailyResult(){
         ${finalWordBlock()}
         <div class="history-trigger-row" style="display:flex;gap:10px;justify-content:center;">
           <button class="status-chip" id="historyBtn" style="width:auto;display:inline-flex;justify-content:center;text-align:center;">Recap</button>
-          <button class="status-chip" id="dailyStatsBtn" style="width:auto;display:inline-flex;justify-content:center;text-align:center;">My Stats</button>
+          <button class="status-chip" id="dailyStatsBtn" style="width:auto;display:inline-flex;justify-content:center;text-align:center;">Your Stats</button>
         </div>
         <div class="panel" style="text-align:left;margin-top:8px;">
           <h2>Result</h2>
