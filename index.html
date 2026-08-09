@@ -3145,7 +3145,7 @@ function renderFeedbackModal(){
         <div class="name-row" style="margin-bottom:10px;">
           <input id="feedbackName" value="${escapeAttr(state.feedbackDraft.name)}" placeholder="Name (optional)" maxlength="30" class="name-input" />
         </div>
-        <textarea id="feedbackText" class="feedback-textarea" rows="5" maxlength="600" placeholder="Tell me what you like, don't like, feel could be improved, or is just broken.">${escapeHtml(state.feedbackDraft.message)}</textarea>
+        <textarea id="feedbackText" class="feedback-textarea" rows="5" maxlength="600" placeholder="Tell me what you like, don't like, feel could be improved, or think is just broken.">${escapeHtml(state.feedbackDraft.message)}</textarea>
         ${state.feedbackError ? `<p style="color:var(--brick);font-weight:700;font-size:calc(13px * var(--text-scale));margin-top:10px;">${escapeHtml(state.feedbackError)}</p>` : ""}
         <button class="btn btn-gold" id="sendFeedbackBtn" style="margin-top:14px;" ${state.feedbackSending ? "disabled" : ""}>${state.feedbackSending ? "Sending…" : "Send Feedback"}</button>
         <div class="rules-toggle" style="margin-top:10px;"><button id="closeFeedbackBtn">Not now</button></div>
