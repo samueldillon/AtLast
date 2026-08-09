@@ -1344,7 +1344,7 @@ function computeDailyStatsSummary(){
    clipboard on desktop browsers / anywhere Web Share isn't supported. */
 async function shareDailyResult(netScore){
   const netLabel = netScore > 0 ? ("+" + netScore) : String(netScore);
-  const message = `I scored a net score of ${netLabel} on At Last today! Do you think you can beat my score?`;
+  const message = `I got a net score of ${netLabel} on At Last today! Think you can beat it?`;
   if(navigator.share){
     try{
       await navigator.share({ text: message, url: GAME_URL });
