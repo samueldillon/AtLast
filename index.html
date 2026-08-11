@@ -1191,6 +1191,13 @@ function todayDateString(){
   return new Date().toISOString().slice(0, 10); // YYYY-MM-DD, UTC — same puzzle worldwide
 }
 
+/* true if the page was opened via a shared "?daily" result link, so the
+   app can drop the visitor straight into today's Daily Challenge instead
+   of the Home screen. */
+function wantsDailyFromURL(){
+  return new URLSearchParams(window.location.search).has("daily");
+}
+
 const WEEKDAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 // Formats a YYYY-MM-DD date string (as returned by todayDateString) into
@@ -1346,16 +1353,17 @@ function computeDailyStatsSummary(){
 async function shareDailyResult(netScore){
   const netLabel = netScore > 0 ? ("+" + netScore) : String(netScore);
   const message = `I got a net score of ${netLabel} on At Last today! Think you can beat it?`;
+  const shareUrl = `${GAME_URL}?daily`; // drops whoever clicks it straight into today's Daily Challenge
   if(navigator.share){
     try{
-      await navigator.share({ text: message, url: GAME_URL });
+      await navigator.share({ text: message, url: shareUrl });
       return;
     }catch(e){
       if(e && e.name === "AbortError") return; // person cancelled the share sheet — not an error
       // fall through to clipboard on any other failure
     }
   }
-  const text = `${message} ${GAME_URL}`;
+  const text = `${message} ${shareUrl}`;
   try{
     await navigator.clipboard.writeText(text);
     showToast("Copied your result to the clipboard!");
@@ -3848,13 +3856,15 @@ document.addEventListener("visibilitychange", ()=>{
 function escapeHtml(s){ return (s||"").replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function escapeAttr(s){ return escapeHtml(s); }
 
+loadTheme();
 const inviteCode = getRoomCodeFromURL();
 if(inviteCode){
   state.mode = "online";
   state.online.joinCodeInput = inviteCode;
   state.showJoinOnlineModal = true;
+} else if(wantsDailyFromURL()){
+  startDailyGame();
 }
-loadTheme();
 tryResumeSession();
 render();
 </script>
