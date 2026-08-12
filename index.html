@@ -1017,6 +1017,16 @@ function turnLabel(name){
   return name === "You" ? "Your turn" : `${escapeHtml(name)}'s turn`;
 }
 
+// "Computer" reads fine as a bare label elsewhere (a seat chip, a scoreboard
+// row), but needs the definite article to read naturally as the subject of
+// a sentence like "The Computer won the round!". "You" needs no such fix —
+// unlike turnLabel()'s "wins"/"win" problem, English past tense ("won")
+// doesn't conjugate by subject, so switching these sentences to past tense
+// (see callers) sidesteps the "You wins" agreement error entirely.
+function winnerLabel(name){
+  return name === "Computer" ? "The Computer" : escapeHtml(name);
+}
+
 /* --- Chimes & alerts --------------------------------------------------
    Three distinct WebAudio chimes, all played on a single persistent
    AudioContext that's unlocked by the player's very first tap on the page
@@ -3602,10 +3612,10 @@ function renderRoundEnd(){
     <div class="screen">
       <div class="wrap winscreen">
         ${miniLogo()}
-        <h1>${escapeHtml(lr.winner)} wins the round!</h1>
+        <h1>${winnerLabel(lr.winner)} won the round!</h1>
         ${finalWordBlock()}
         ${historyTrigger()}
-        <p style="color:var(--text-muted);margin-bottom:20px;font-weight:600;">${escapeHtml(lr.winner)} scores +${lr.points} from everyone else's leftover cards.</p>
+        <p style="color:var(--text-muted);margin-bottom:20px;font-weight:600;">${winnerLabel(lr.winner)} scored +${lr.points} from everyone else's leftover cards.</p>
         <div class="panel" style="text-align:left;">
           <h2>Scoreboard</h2>
           ${scoreboardRows()}
@@ -3779,7 +3789,7 @@ function renderGameOver(){
       <div class="wrap winscreen">
         ${miniLogo()}
         <div class="thread-icon">🏆</div>
-        <h1>${escapeHtml(state.gameWinner)} wins the game!</h1>
+        <h1>${winnerLabel(state.gameWinner)} won the game!</h1>
         ${finalWordBlock()}
         ${historyTrigger()}
         <p style="color:var(--text-muted);margin-bottom:20px;font-weight:600;">First to reach ${currentWinningScore()} points.</p>
