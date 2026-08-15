@@ -3822,14 +3822,16 @@ function renderDailyResult(){
         ${refreshBlock}
         <p style="color:var(--text-muted);font-size:calc(13px * var(--text-scale));font-weight:600;margin:16px 0;">Come back tomorrow for a new puzzle.</p>
         <button class="btn btn-outline" id="dailyHomeBtn">Back to Home</button>
-        <div class="rules-toggle">${settingsTrigger()}&nbsp;·&nbsp;${feedbackTrigger()}</div>
+        <div class="rules-toggle">${moreWaysTrigger()}&nbsp;·&nbsp;${settingsTrigger()}&nbsp;·&nbsp;${feedbackTrigger()}</div>
       </div>
     </div>
+    ${state.showMoreWays ? renderMoreWaysModal() : ""}
     ${state.showSettings ? renderSettingsModal() : ""}
     ${state.showFeedback ? renderFeedbackModal() : ""}
     ${state.uiWordsOpen ? renderWordsModal() : ""}
     ${state.showDailyStats ? renderDailyStatsModal() : ""}
   `;
+  wireMoreWaysTrigger();
   wireSettingsTrigger();
   wireFeedbackTrigger();
   wireHistoryTrigger();
