@@ -295,6 +295,11 @@
     min-height:72px; border-radius:14px; border:2px dashed var(--border);
     display:flex; align-items:center; gap:6px; padding:8px; flex-wrap:wrap;
     background:var(--panel-2); position:relative;
+    /* Words cap at 8 tiles (see isValidWord/the 8-tile builder guard below),
+       so the box itself shouldn't stretch wider than 8 tiles' worth of
+       content on large screens — it used to fill the full column width,
+       leaving a wide empty strip once the per-tile max-width kicked in. */
+    max-width:calc(44px * var(--text-scale) * 8 + 6px * 7 + 16px);
   }
   .builder-row.empty::before{ content:"Tap letters below or the Core Card, to build your word"; color:var(--text-muted); font-size:calc(12px * var(--text-scale)); font-family:'Nunito',sans-serif; font-weight:600;}
   .btile{
@@ -2157,7 +2162,18 @@ function wordString(){
 
 /* ============================= BUILDER LOGIC ============================= */
 
+// Words cap at 8 tiles (see the "Playing a word" rule in the Rules modal) —
+// reuses the same shakeWord flag/animation as a failed submit, since it's
+// the same "not allowed" feedback either way.
+function shakeBuilderFull(){
+  state.shakeWord = true;
+  render();
+  clearTimeout(shakeBuilderFull._timer);
+  shakeBuilderFull._timer = setTimeout(()=>{ state.shakeWord = false; render(); }, 500);
+}
+
 function addHandCardToBuilder(card){
+  if(state.builder.length >= 8){ shakeBuilderFull(); return; }
   if(card.kind !== "letter" && !card.assignedLetter){
     state.pendingWildAssign = { forCore:false, card };
     render();
@@ -2169,6 +2185,7 @@ function addHandCardToBuilder(card){
 
 function insertCoreIntoBuilder(){
   if(state.coreInsertedAt !== -1){ showToast("Already placed in your word."); return; }
+  if(state.builder.length >= 8){ shakeBuilderFull(); return; }
   if(state.core.kind !== "letter" && !state.core.assignedLetter){
     state.pendingWildAssign = { forCore:true, card: state.core };
     render();
