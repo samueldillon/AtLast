@@ -873,6 +873,7 @@ let state = {
   mode: "local",         // "local" (pass & play) | "online" (each on own phone, via Firebase)
   showCreateOnlineModal: false,
   showJoinOnlineModal: false,
+  showMoreWays: false,
   online: {
     code: null,            // room code, e.g. "BQXT"
     clientId: null,        // stable per-device id, persisted in localStorage
@@ -1202,13 +1203,6 @@ function todayDateString(){
   return new Date().toISOString().slice(0, 10); // YYYY-MM-DD, UTC — same puzzle worldwide
 }
 
-/* true if the page was opened via a shared "?daily" result link, so the
-   app can drop the visitor straight into today's Daily Challenge instead
-   of the Home screen. */
-function wantsDailyFromURL(){
-  return new URLSearchParams(window.location.search).has("daily");
-}
-
 const WEEKDAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 // Formats a YYYY-MM-DD date string (as returned by todayDateString) into
@@ -1364,7 +1358,7 @@ function computeDailyStatsSummary(){
 async function shareDailyResult(netScore){
   const netLabel = netScore > 0 ? ("+" + netScore) : String(netScore);
   const message = `I got a net score of ${netLabel} on At Last today! Think you can beat it?`;
-  const shareUrl = `${GAME_URL}?daily`; // drops whoever clicks it straight into today's Daily Challenge
+  const shareUrl = GAME_URL; // the site itself now drops straight into today's Daily Challenge
   if(navigator.share){
     try{
       await navigator.share({ text: message, url: shareUrl });
@@ -2756,6 +2750,57 @@ function submitFeedback(){
   });
 }
 
+// "More Ways to Play" link + popup — reused on every screen that also shows
+// the rulesTrigger, same pattern as settingsTrigger()/wireSettingsTrigger()
+// above. Holds the three non-Daily modes that used to live in their own
+// panel on the home screen; picking Create/Join Online routes back to home
+// with that modal already open, rather than duplicating its render/wire
+// calls onto every other screen this link now appears on.
+function moreWaysTrigger(){
+  return `<button id="moreWaysBtn">More Ways to Play</button>`;
+}
+function wireMoreWaysTrigger(){
+  document.getElementById("moreWaysBtn").onclick = ()=>{ state.showMoreWays = true; render(); };
+  if(state.showMoreWays){
+    document.getElementById("localBtn").onclick = ()=>{
+      state.showMoreWays = false;
+      state.mode = "local";
+      state.screen = "setup";
+      render();
+    };
+    document.getElementById("createOnlineBtn").onclick = ()=>{
+      state.showMoreWays = false;
+      state.mode = "online";
+      state.online.error = null;
+      state.screen = "home";
+      state.showCreateOnlineModal = true;
+      render();
+    };
+    document.getElementById("joinOnlineBtn").onclick = ()=>{
+      state.showMoreWays = false;
+      state.mode = "online";
+      state.online.error = null;
+      state.screen = "home";
+      state.showJoinOnlineModal = true;
+      render();
+    };
+    document.getElementById("closeMoreWaysBtn").onclick = ()=>{ state.showMoreWays = false; render(); };
+  }
+}
+function renderMoreWaysModal(){
+  return `
+    <div class="modal-backdrop" id="moreWaysBackdrop">
+      <div class="modal" style="max-width:400px;text-align:left;">
+        <h3>More Ways to Play</h3>
+        <button class="btn btn-gold" id="localBtn" style="margin-bottom:12px;">Play and Pass</button>
+        <button class="btn btn-outline" id="createOnlineBtn" style="margin-bottom:12px;">Create Online Game</button>
+        <button class="btn btn-outline" id="joinOnlineBtn">Join Online Game</button>
+        <div class="rules-toggle" style="margin-top:14px;"><button id="closeMoreWaysBtn">Close</button></div>
+      </div>
+    </div>
+  `;
+}
+
 // Standalone History link — used on the round-end / game-over screens, which
 // don't have the in-game Cards/Words/Scoreboard row but should still let
 // players review the word log. Shares the same renderWordsModal()/uiWordsOpen
@@ -2878,33 +2923,27 @@ function renderHome(){
           <p style="color:var(--text-muted);font-weight:600;font-size:calc(13px * var(--text-scale));margin-bottom:14px;">Everyone starts with the same letters. Can you score the most points against the Computer?</p>
           <button class="btn btn-sage" id="dailyBtn">${dailyAlreadyPlayedToday() ? "View Today's Result" : "Play Today's Puzzle"}</button>
         </div>
-        <div class="panel" style="margin-top:14px;">
-          <h2>More Ways to Play</h2>
-          <button class="btn btn-gold" id="localBtn" style="margin-bottom:12px;">Play and Pass</button>
-          <button class="btn btn-outline" id="createOnlineBtn" style="margin-bottom:12px;">Create Online Game</button>
-          <button class="btn btn-outline" id="joinOnlineBtn">Join Online Game</button>
-        </div>
         <div class="mode-toggle-row">
           <button id="rulesBtn">How to Play At Last</button>
+          ${moreWaysTrigger()}
           ${settingsTrigger()}
           ${feedbackTrigger()}
         </div>
       </div>
     </div>
     ${state.showRules ? renderRulesModal() : ""}
+    ${state.showMoreWays ? renderMoreWaysModal() : ""}
     ${state.showSettings ? renderSettingsModal() : ""}
     ${state.showFeedback ? renderFeedbackModal() : ""}
     ${state.showCreateOnlineModal ? renderCreateOnlineModal() : ""}
     ${state.showJoinOnlineModal ? renderJoinOnlineModal() : ""}
   `;
-  document.getElementById("localBtn").onclick = ()=>{ state.mode = "local"; state.screen = "setup"; render(); };
-  document.getElementById("createOnlineBtn").onclick = ()=>{ state.mode = "online"; state.online.error = null; state.showCreateOnlineModal = true; render(); };
-  document.getElementById("joinOnlineBtn").onclick = ()=>{ state.mode = "online"; state.online.error = null; state.showJoinOnlineModal = true; render(); };
   document.getElementById("dailyBtn").onclick = startDailyGame;
   document.getElementById("rulesBtn").onclick = ()=>{ state.showRules = true; render(); };
   if(state.showRules){
     document.getElementById("closeRulesBtn").onclick = ()=>{ state.showRules = false; render(); };
   }
+  wireMoreWaysTrigger();
   wireSettingsTrigger();
   wireFeedbackTrigger();
   if(state.showCreateOnlineModal) wireCreateOnlineModal();
@@ -2962,6 +3001,8 @@ function renderLobby(){
         <div class="rules-toggle">
           <button id="rulesBtn">How to Play At Last</button>
           &nbsp;·&nbsp;
+          ${moreWaysTrigger()}
+          &nbsp;·&nbsp;
           ${settingsTrigger()}
           &nbsp;·&nbsp;
           ${feedbackTrigger()}
@@ -2972,9 +3013,11 @@ function renderLobby(){
     </div>
     ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
     ${state.showRules ? renderRulesModal() : ""}
+    ${state.showMoreWays ? renderMoreWaysModal() : ""}
     ${state.showSettings ? renderSettingsModal() : ""}
     ${state.showFeedback ? renderFeedbackModal() : ""}
   `;
+  wireMoreWaysTrigger();
   if(state.online.isHost){
     document.querySelectorAll("[data-set-cpu]").forEach(b=>{ b.onclick = ()=>setSeatCPU(parseInt(b.dataset.setCpu), true); });
     document.querySelectorAll("[data-unset-cpu]").forEach(b=>{ b.onclick = ()=>setSeatCPU(parseInt(b.dataset.unsetCpu), false); });
@@ -3050,6 +3093,8 @@ function renderSetup(){
         <div class="rules-toggle">
           <button id="rulesBtn">How to Play At Last</button>
           &nbsp;·&nbsp;
+          ${moreWaysTrigger()}
+          &nbsp;·&nbsp;
           ${settingsTrigger()}
           &nbsp;·&nbsp;
           ${feedbackTrigger()}
@@ -3059,9 +3104,11 @@ function renderSetup(){
       </div>
     </div>
     ${state.showRules ? renderRulesModal() : ""}
+    ${state.showMoreWays ? renderMoreWaysModal() : ""}
     ${state.showSettings ? renderSettingsModal() : ""}
     ${state.showFeedback ? renderFeedbackModal() : ""}
   `;
+  wireMoreWaysTrigger();
   document.getElementById("dec").onclick = ()=>{ if(state.playerCount>2){ state.playerCount--; render(); } };
   document.getElementById("inc").onclick = ()=>{ if(state.playerCount<8){ state.playerCount++; render(); } };
   document.querySelectorAll(".name-input").forEach(inp=>{
@@ -3355,6 +3402,8 @@ function renderPlay(){
         <div class="rules-toggle">
           <button id="rulesBtn">How to Play At Last</button>
           &nbsp;·&nbsp;
+          ${moreWaysTrigger()}
+          &nbsp;·&nbsp;
           ${settingsTrigger()}
           &nbsp;·&nbsp;
           ${feedbackTrigger()}
@@ -3364,6 +3413,7 @@ function renderPlay(){
     ${state.pendingWildAssign ? renderWildPicker() : ""}
     ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
     ${state.showRules ? renderRulesModal() : ""}
+    ${state.showMoreWays ? renderMoreWaysModal() : ""}
     ${state.showSettings ? renderSettingsModal() : ""}
     ${state.showFeedback ? renderFeedbackModal() : ""}
     ${state.uiCardsOpen ? renderCardsModal(cardCounts) : ""}
@@ -3371,6 +3421,7 @@ function renderPlay(){
     ${state.uiScoreboardOpen ? renderScoreboardModal() : ""}
   `;
 
+  wireMoreWaysTrigger();
   document.querySelectorAll("[data-card]").forEach(el=>{
     el.onclick = ()=>{
       const id = parseInt(el.dataset.card);
@@ -3533,6 +3584,8 @@ function renderOnlinePlay(){
         <div class="rules-toggle">
           <button id="rulesBtn">How to Play At Last</button>
           &nbsp;·&nbsp;
+          ${moreWaysTrigger()}
+          &nbsp;·&nbsp;
           ${settingsTrigger()}
           &nbsp;·&nbsp;
           ${feedbackTrigger()}
@@ -3544,6 +3597,7 @@ function renderOnlinePlay(){
     ${state.pendingWildAssign ? renderWildPicker() : ""}
     ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
     ${state.showRules ? renderRulesModal() : ""}
+    ${state.showMoreWays ? renderMoreWaysModal() : ""}
     ${state.showSettings ? renderSettingsModal() : ""}
     ${state.showFeedback ? renderFeedbackModal() : ""}
     ${state.uiCardsOpen ? renderCardsModal(opponents) : ""}
@@ -3553,6 +3607,7 @@ function renderOnlinePlay(){
 
   document.getElementById("leaveGameBtn").onclick = confirmLeaveOnlineRoom;
   document.getElementById("rulesBtn").onclick = ()=>{ state.showRules = true; render(); };
+  wireMoreWaysTrigger();
   wireCardsAndScoreboardTriggers();
   wireSettingsTrigger();
   wireFeedbackTrigger();
@@ -3890,7 +3945,11 @@ if(inviteCode){
   state.mode = "online";
   state.online.joinCodeInput = inviteCode;
   state.showJoinOnlineModal = true;
-} else if(wantsDailyFromURL()){
+} else {
+  // Land every visitor straight in today's Daily Challenge — startDailyGame()
+  // already checks dailyAlreadyPlayedToday() and shows the result screen
+  // instead of restarting, so returning same-day players get the right
+  // screen too, not a duplicate attempt.
   startDailyGame();
 }
 tryResumeSession();
