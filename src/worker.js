@@ -79,7 +79,9 @@ async function handleFeedback(request, env) {
   if (!resendRes.ok) {
     const errText = await resendRes.text().catch(() => "");
     console.error("Resend send failed:", resendRes.status, errText);
-    return json({ ok: false, reason: "send_failed" });
+    // TEMP: surfaced for debugging while wiring this up — remove debug
+    // before considering this endpoint finished.
+    return json({ ok: false, reason: "send_failed", debug_status: resendRes.status, debug_body: errText.slice(0, 300) });
   }
 
   return json({ ok: true });
