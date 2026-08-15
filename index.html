@@ -3308,6 +3308,15 @@ function renderPlay(){
           ${state.clockMode ? `<div class="clock-badge${(p.timeLeft ?? 120) <= 20 ? " low" : ""}">⏱ ${formatClock(p.timeLeft ?? 120)}</div>` : ""}
         </div>
 
+        ${state.mode === "daily" && state.lastPlay ? `
+          <div class="last-play-block">
+            <div class="last-play-label">${escapeHtml(state.lastPlay.by)} played</div>
+            <div class="last-play-row">
+              ${state.lastPlay.tiles.map(t => `<div class="btile ${t.wild ? 'wild-tile' : ''} ${t.core ? 'core-tile' : ''}">${escapeHtml(t.letter)}</div>`).join("")}
+            </div>
+          </div>
+        ` : ""}
+
         <div class="core-zone">
           <div class="${coreClass}" id="coreCardEl" role="button">${coreSparkles}${displayLetter(state.core)}</div>
           <div class="core-thread"></div>
