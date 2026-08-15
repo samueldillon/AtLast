@@ -9,7 +9,10 @@
    first and treats this endpoint as best-effort — see submitFeedback() in
    index.html — so every failure path here responds 200 rather than surfacing
    an error to the player; the feedback is never lost, only the email notice
-   might not send. */
+   might not send.
+
+   (deploy marker: 2026-08-15b — forcing a fresh version so a dashboard-added
+   secret is definitely attached to what's serving traffic) */
 
 export default {
   async fetch(request, env) {
