@@ -9,10 +9,7 @@
    first and treats this endpoint as best-effort — see submitFeedback() in
    index.html — so every failure path here responds 200 rather than surfacing
    an error to the player; the feedback is never lost, only the email notice
-   might not send.
-
-   (deploy marker: 2026-08-15b — forcing a fresh version so a dashboard-added
-   secret is definitely attached to what's serving traffic) */
+   might not send. */
 
 export default {
   async fetch(request, env) {
@@ -48,7 +45,7 @@ async function handleFeedback(request, env) {
     return json({ ok: false, reason: "not_configured" });
   }
 
-  const fromAddress = env.FEEDBACK_FROM || "At Last <onboarding@resend.dev>";
+  const fromAddress = env.FEEDBACK_FROM || "At Last <feedback@playatlast.com>";
 
   let resendRes;
   try {
@@ -79,9 +76,7 @@ async function handleFeedback(request, env) {
   if (!resendRes.ok) {
     const errText = await resendRes.text().catch(() => "");
     console.error("Resend send failed:", resendRes.status, errText);
-    // TEMP: surfaced for debugging while wiring this up — remove debug
-    // before considering this endpoint finished.
-    return json({ ok: false, reason: "send_failed", debug_status: resendRes.status, debug_body: errText.slice(0, 300) });
+    return json({ ok: false, reason: "send_failed" });
   }
 
   return json({ ok: true });
