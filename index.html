@@ -2740,6 +2740,14 @@ function submitFeedback(){
     state.feedbackDraft = { name, message: "" };
     logEvent("feedback_submitted", { hasName: !!name, messageLength: message.length });
     showToast("Thanks — got it!");
+    // Best-effort email notification alongside the Firestore write above,
+    // which stays the durable record — a failure here must never surface
+    // to the player, since their feedback is already saved either way.
+    fetch("/api/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, message, screen: state.screen, mode: state.mode }),
+    }).catch(()=>{});
   }).catch(err=>{
     console.error("Feedback submit failed:", err);
     state.feedbackSending = false;
