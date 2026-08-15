@@ -300,6 +300,7 @@
        content on large screens — it used to fill the full column width,
        leaving a wide empty strip once the per-tile max-width kicked in. */
     max-width:calc(44px * var(--text-scale) * 8 + 6px * 7 + 16px);
+    margin-left:auto; margin-right:auto;
   }
   .builder-row.empty::before{ content:"Tap letters below or the Core Card, to build your word"; color:var(--text-muted); font-size:calc(12px * var(--text-scale)); font-family:'Nunito',sans-serif; font-weight:600;}
   .btile{
