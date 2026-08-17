@@ -3839,7 +3839,6 @@ function renderDailyResult(){
         ${scoresBlock}
         ${refreshBlock}
         <p style="color:var(--text-muted);font-size:calc(13px * var(--text-scale));font-weight:600;margin:16px 0;">Come back tomorrow for a new puzzle.</p>
-        <button class="btn btn-outline" id="dailyHomeBtn">Back to Home</button>
         <div class="rules-toggle">${moreWaysTrigger()}&nbsp;·&nbsp;${settingsTrigger()}&nbsp;·&nbsp;${feedbackTrigger()}</div>
       </div>
     </div>
@@ -3865,12 +3864,6 @@ function renderDailyResult(){
       render();
     };
   }
-  document.getElementById("dailyHomeBtn").onclick = ()=>{
-    state._dailyResultSubmitted = false;
-    state.showDailyStats = false;
-    state.screen = "home";
-    render();
-  };
 }
 
 function renderGameOver(){
