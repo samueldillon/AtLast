@@ -2942,7 +2942,7 @@ function renderHome(){
           <button class="btn btn-sage" id="dailyBtn">${dailyAlreadyPlayedToday() ? "View Today's Result" : "Play Today's Puzzle"}</button>
         </div>
         <div class="mode-toggle-row">
-          <button id="rulesBtn">How to Play At Last</button>
+          <button id="rulesBtn">How to Play</button>
           ${moreWaysTrigger()}
           ${settingsTrigger()}
           ${feedbackTrigger()}
@@ -3017,7 +3017,7 @@ function renderLobby(){
           ? `<button class="btn btn-gold" id="startOnlineBtn" ${allFilled?'':'disabled'}>${allFilled?'Deal &amp; Start':'Waiting for all seats to fill…'}</button>`
           : `<p style="text-align:center;color:var(--text-muted);font-weight:700;">Waiting for the host to start the game…</p>`}
         <div class="rules-toggle">
-          <button id="rulesBtn">How to Play At Last</button>
+          <button id="rulesBtn">How to Play</button>
           &nbsp;·&nbsp;
           ${moreWaysTrigger()}
           &nbsp;·&nbsp;
@@ -3109,7 +3109,7 @@ function renderSetup(){
         <button class="btn btn-gold" id="startBtn">Deal &amp; Start</button>
 
         <div class="rules-toggle">
-          <button id="rulesBtn">How to Play At Last</button>
+          <button id="rulesBtn">How to Play</button>
           &nbsp;·&nbsp;
           ${moreWaysTrigger()}
           &nbsp;·&nbsp;
@@ -3155,7 +3155,7 @@ function renderRulesModal(){
   return `
     <div class="modal-backdrop" id="rulesBackdrop">
       <div class="modal" style="max-width:440px;text-align:left;">
-        <h3>How to Play At Last</h3>
+        <h3>How to Play</h3>
         <p style="margin-bottom:10px;"><strong>Goal:</strong> Play all the letters from your hand. The first player to reach ${currentWinningScore()} points at the end of the round wins.</p>
         <p style="margin-bottom:10px;"><strong>On Your Turn:</strong> Either play a word or draw a Wildcard. You start with 2 Wildcards, and that's the maximum you can hold at a time.</p>
         <p style="margin-bottom:10px;"><strong>Playing a word:</strong> Each word must be 3 to 8 letters long and include the last letter of the previously played word.</p>
@@ -3418,7 +3418,7 @@ function renderPlay(){
         ${cardsAndScoreboardTriggers()}
 
         <div class="rules-toggle">
-          <button id="rulesBtn">How to Play At Last</button>
+          <button id="rulesBtn">How to Play</button>
           &nbsp;·&nbsp;
           ${moreWaysTrigger()}
           &nbsp;·&nbsp;
@@ -3600,7 +3600,7 @@ function renderOnlinePlay(){
         ${cardsAndScoreboardTriggers()}
 
         <div class="rules-toggle">
-          <button id="rulesBtn">How to Play At Last</button>
+          <button id="rulesBtn">How to Play</button>
           &nbsp;·&nbsp;
           ${moreWaysTrigger()}
           &nbsp;·&nbsp;
