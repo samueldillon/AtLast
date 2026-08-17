@@ -7,12 +7,12 @@
 <meta name="description" content="Their last letter. Your word. Race to play your letters first. Play today's puzzle against the Computer and see how you rank.">
 <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InJiIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSIgeDE9IjAiIHkxPSIwIiB4Mj0iMTAwIiB5Mj0iMCI+PHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0ZGNkZCNSIvPjxzdG9wIG9mZnNldD0iMjAlIiBzdG9wLWNvbG9yPSIjRkZCMjU5Ii8+PHN0b3Agb2Zmc2V0PSI0MCUiIHN0b3AtY29sb3I9IiNGRkRENUMiLz48c3RvcCBvZmZzZXQ9IjYwJSIgc3RvcC1jb2xvcj0iIzVGRTBCNyIvPjxzdG9wIG9mZnNldD0iODAlIiBzdG9wLWNvbG9yPSIjNUVDNEYwIi8+PHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjQTc4QkZBIi8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHJlY3QgeD0iNyIgeT0iNyIgd2lkdGg9Ijg2IiBoZWlnaHQ9Ijg2IiByeD0iMjEiIGZpbGw9IiNGRkZGRkYiIHN0cm9rZT0idXJsKCNyYikiIHN0cm9rZS13aWR0aD0iOCIvPjx0ZXh0IHg9IjUwIiB5PSI2OCIgZm9udC1mYW1pbHk9IkFyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmIiBmb250LXdlaWdodD0iODAwIiBmb250LXNpemU9IjUwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjNEEzQjYzIj5BPC90ZXh0Pjwvc3ZnPg==">
 <meta property="og:type" content="website">
-<meta property="og:title" content="At Last — A Word Game Fighting for the Last Word">
+<meta property="og:title" content="At Last - Will you play the final word?">
 <meta property="og:description" content="Their last letter. Your word. Race to play your letters first. Play today's puzzle against the Computer and see how you rank.">
 <meta property="og:image" content="https://www.playatlast.com/og-image.png">
 <meta property="og:url" content="https://www.playatlast.com">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="At Last — A Word Game Fighting for the Last Word">
+<meta name="twitter:title" content="At Last - Will you play the final word?">
 <meta name="twitter:description" content="Their last letter. Your word. Race to play your letters first. Play today's puzzle against the Computer and see how you rank.">
 <meta name="twitter:image" content="https://www.playatlast.com/og-image.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1363,18 +1363,23 @@ function computeDailyStatsSummary(){
    clipboard on desktop browsers / anywhere Web Share isn't supported. */
 async function shareDailyResult(netScore){
   const netLabel = netScore > 0 ? ("+" + netScore) : String(netScore);
-  const message = `I got a net score of ${netLabel} on At Last today! Think you can beat it?`;
-  const shareUrl = GAME_URL; // the site itself now drops straight into today's Daily Challenge
+  const message = `I scored ${netLabel} on today's At Last! Think you can beat it?`;
+  // Displayed without the "https://" scheme, folded directly into the text
+  // rather than passed as a separate url: field — a scheme-less string
+  // there risks being parsed as a relative URL instead of an absolute one.
+  // WhatsApp (and most link-detectors) still recognise a bare "www.…" and
+  // build a preview card from it.
+  const displayUrl = GAME_URL.replace(/^https?:\/\//, "");
+  const text = `${message} ${displayUrl}`;
   if(navigator.share){
     try{
-      await navigator.share({ text: message, url: shareUrl });
+      await navigator.share({ text });
       return;
     }catch(e){
       if(e && e.name === "AbortError") return; // person cancelled the share sheet — not an error
       // fall through to clipboard on any other failure
     }
   }
-  const text = `${message} ${shareUrl}`;
   try{
     await navigator.clipboard.writeText(text);
     showToast("Copied your result to the clipboard!");
