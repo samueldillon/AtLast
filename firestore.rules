@@ -1,0 +1,45 @@
+rules_version = '2';
+
+/* Firestore security rules for the "endlinkonline" project (At Last / playatlast.com).
+   This repo previously had no rules file at all — the setup comment in index.html
+   documented `allow read, write: if true` on every collection, and a live read
+   confirmed that's what's actually deployed. This file locks down daily_results
+   (the Daily Challenge leaderboard) without touching client code.
+
+   rooms/{roomCode} is left open on purpose: online multiplayer has no per-player
+   auth yet (see index.html's syncOnline()/getClientId()), so there's no identity
+   for rules to check seat-by-seat. It's being launched as "friends only, share the
+   link/code only with people you trust" until that's built — tightening the regex
+   below without adding real auth would give a false sense of security. */
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Daily Challenge results: anyone can submit their own score (there's no
+    // login to check against), but every submission must match the exact shape
+    // index.html's submitAndFetchDailyPercentile() writes — no extra fields, no
+    // out-of-range scores, no spoofed timestamps — and nothing can be edited or
+    // deleted once written, so a bad actor can add noise but can't rewrite history.
+    match /daily_results/{resultId} {
+      allow read: if true; // needed for the same-day percentile lookup — no auth exists to scope this further yet
+      allow create: if isValidDailyResult(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    // Online multiplayer rooms — intentionally unchanged for now (see note above).
+    match /rooms/{roomCode} {
+      allow read, write: if true;
+    }
+
+    function isValidDailyResult(d) {
+      return d.keys().hasOnly(['date', 'humanScore', 'cpuScore', 'netScore', 'name', 'clientId', 'ts'])
+        && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.humanScore is int && d.humanScore >= 0 && d.humanScore < 300
+        && d.cpuScore is int && d.cpuScore >= 0 && d.cpuScore < 300
+        && d.netScore is int && d.netScore == d.humanScore - d.cpuScore
+        && d.name is string && d.name.size() <= 60
+        && d.clientId is string && d.clientId.size() <= 100
+        && d.ts == request.time; // must be the server's clock, not a client-supplied value
+    }
+  }
+}
