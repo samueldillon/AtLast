@@ -1388,6 +1388,29 @@ async function shareDailyResult(netScore){
   }
 }
 
+/* ---- BIRTHDAY POPUP: one-off, remove this whole block along with its two
+   call sites in renderPlay() (also marked BIRTHDAY POPUP) after 2026-08-23 ---- */
+const JAYNE_BIRTHDAY_DATE = "2026-08-23";
+function shouldShowJayneBirthdayPopup(){
+  return todayDateString() === JAYNE_BIRTHDAY_DATE
+    && !localStorage.getItem("endlink_jayne_bday_2026_shown");
+}
+function markJayneBirthdayPopupShown(){
+  try{ localStorage.setItem("endlink_jayne_bday_2026_shown", "1"); }catch(e){}
+}
+function renderBirthdayModal(){
+  return `
+    <div class="modal-backdrop">
+      <div class="modal">
+        <h3>🎂 Happy Birthday, Jayne!</h3>
+        <p style="margin:10px 0 18px;">Hope you have a great one today. 🎉</p>
+        <button class="btn btn-gold" id="closeBirthdayBtn" style="width:100%;">Let's play</button>
+      </div>
+    </div>
+  `;
+}
+/* ---- end BIRTHDAY POPUP block ---- */
+
 function startDailyGame(){
   if(dailyAlreadyPlayedToday()){
     state.screen = "dailyResult";
@@ -1414,6 +1437,10 @@ function startDailyGame(){
   state.currentPlayer = 0;
   state.screen = "play";
   triggerCorePulse();
+  if(shouldShowJayneBirthdayPopup()){ // BIRTHDAY POPUP
+    state.showBirthdayModal = true;
+    markJayneBirthdayPopupShown();
+  }
   render();
 }
 
@@ -3442,6 +3469,8 @@ function renderPlay(){
     ${state.uiCardsOpen ? renderCardsModal(cardCounts) : ""}
     ${state.uiWordsOpen ? renderWordsModal() : ""}
     ${state.uiScoreboardOpen ? renderScoreboardModal() : ""}
+    ${state.showBirthdayModal ? renderBirthdayModal() : ""}
+    <!-- BIRTHDAY POPUP: remove the line above after 2026-08-23 -->
   `;
 
   wireMoreWaysTrigger();
@@ -3467,6 +3496,9 @@ function renderPlay(){
   wireFeedbackTrigger();
   if(state.showRules){
     document.getElementById("closeRulesBtn").onclick = ()=>{ state.showRules = false; render(); };
+  }
+  if(state.showBirthdayModal){ // BIRTHDAY POPUP — remove this block after 2026-08-23
+    document.getElementById("closeBirthdayBtn").onclick = ()=>{ state.showBirthdayModal = false; render(); };
   }
 }
 
