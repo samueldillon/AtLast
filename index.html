@@ -917,6 +917,10 @@ let state = {
   feedbackDraft: { name:"", message:"" }, // local-only, keeps typed-but-unsent text across re-renders
   feedbackError: null,
   feedbackSending: false,
+  showWordChecker: false, // local-only — Word Checker modal open/closed
+  checkerInput: "",       // local-only — raw draft text in the Word Checker input
+  checkerChecked: null,   // local-only — exact text last submitted via Check/Enter; null until first check
+  checkerDefOpen: false,  // local-only — whether the definition is expanded for checkerChecked
   darkMode: false,        // local-only UI preference, persisted to localStorage
   rainbowMode: false,     // local-only UI preference, persisted to localStorage — independent of darkMode
   highContrast: false,    // local-only UI preference, persisted to localStorage — independent of darkMode/rainbowMode
@@ -2271,6 +2275,118 @@ function bonusDrawAmount(wordLength){
   return 0; // 3-letter word
 }
 
+/* ============================= WORD CHECKER ============================= */
+
+function wordTier(word){
+  const w = word.toUpperCase();
+  if(BEGINNER_WORDS.has(w)) return "beginner";
+  if(NATIVE_WORDS.has(w)) return "native";
+  if(DICTIONARY.has(w)) return "genius";
+  return null;
+}
+
+function checkerEvaluate(raw){
+  const word = (raw || "").toUpperCase().replace(/[^A-Z]/g, "");
+  if(word.length < 3) return { word, status: "short" };
+  if(DICTIONARY.has(word)) return { word, status: "valid", tier: wordTier(word) };
+  if(word.length > 8) return { word, status: "notfound-long" }; // dictionary only covers up to 8 letters
+  return { word, status: "notfound" };
+}
+
+function checkerPreviewTilesHtml(raw){
+  const letters = (raw || "").toUpperCase().replace(/[^A-Z]/g, "").split("");
+  if(!letters.length){
+    return `<div class="builder-row" style="justify-content:center;"><span style="color:var(--text-muted);font-weight:600;font-size:calc(12px * var(--text-scale));">Type a word to see it in tiles</span></div>`;
+  }
+  return `<div class="builder-row">${letters.map(l => `<div class="btile">${l}</div>`).join("")}</div>`;
+}
+function updateCheckerPreview(raw){
+  const el = document.getElementById("checkerTilePreview");
+  if(el) el.innerHTML = checkerPreviewTilesHtml(raw);
+}
+
+function renderWordCheckerModal(){
+  const result = state.checkerChecked !== null ? checkerEvaluate(state.checkerChecked) : null;
+  const canCheck = /[A-Za-z]/.test(state.checkerInput || "");
+  return `
+    <div class="modal-backdrop" id="wordCheckerBackdrop">
+      <div class="modal" style="max-width:420px;text-align:left;">
+        <h3>Word Checker</h3>
+        <p>Type any word to see if it's valid, what it would score, and how tricky it is — handy for settling arguments over the EndLink card game.</p>
+        <div id="checkerTilePreview">${checkerPreviewTilesHtml(state.checkerInput)}</div>
+        <div class="name-row" style="margin-top:10px;margin-bottom:4px;">
+          <input id="checkerInputBox" value="${escapeAttr(state.checkerInput)}" placeholder="Type a word…" maxlength="24" autocomplete="off" autocapitalize="characters" spellcheck="false" />
+        </div>
+        <button class="btn btn-gold" id="checkWordBtn" style="margin-top:8px;" ${canCheck ? "" : "disabled"}>Check Word</button>
+        ${result ? renderCheckerResult(result) : ""}
+        <div class="rules-toggle" style="margin-top:14px;"><button id="closeWordCheckerBtn">Close</button></div>
+      </div>
+    </div>
+  `;
+}
+
+function renderCheckerResult(result){
+  const { word, status } = result;
+  const tileRow = `<div class="builder-row">${word.split("").map(l => `<div class="btile">${escapeHtml(l)}</div>`).join("")}</div>`;
+  if(status === "short"){
+    return `<div style="margin-top:14px;">${tileRow}<p style="color:var(--brick);font-weight:700;margin-top:8px;">Too short to play — words need at least 3 letters.</p></div>`;
+  }
+  if(status === "notfound" || status === "notfound-long"){
+    const msg = status === "notfound-long"
+      ? `Not found — this checker's dictionary only covers words up to 8 letters, so a longer real word may still read as "not found" here.`
+      : `Not in the dictionary — this word can't be played in At Last.`;
+    return `<div style="margin-top:14px;">${tileRow}<p style="color:var(--brick);font-weight:700;margin-top:8px;">${msg}</p></div>`;
+  }
+  const bonus = bonusDrawAmount(word.length);
+  const tiers = ["beginner","native","genius"];
+  return `
+    <div style="margin-top:14px;">
+      ${tileRow}
+      <p style="color:var(--sage);font-weight:700;margin-top:8px;">Valid word!</p>
+      <div class="scoreboard-row"><span>Score</span><span class="pts mono">${word.length} pt${word.length===1?"":"s"}</span></div>
+      <div class="scoreboard-row" style="border-bottom:none;"><span>${bonus>0 ? "Bonus draw" : "No bonus draw"}</span><span class="pts mono">${bonus>0 ? ("+"+bonus+" card"+(bonus===1?"":"s")) : "—"}</span></div>
+      <div style="margin-top:10px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:calc(11px * var(--text-scale));color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">CPU Difficulty Tier</div>
+        <div class="diff-row" style="margin-left:0;">
+          ${tiers.map(level => `<span class="diff-chip${result.tier===level?' active':''}">${level[0].toUpperCase()+level.slice(1)}</span>`).join("")}
+        </div>
+      </div>
+      <button class="word-term" id="checkerDefToggle" style="margin-top:10px;">${state.checkerDefOpen ? "Hide definition" : "Show definition"}</button>
+      ${state.checkerDefOpen ? `<div class="word-def">${wordDefContent(word)}</div>` : ""}
+    </div>`;
+}
+
+function wireWordCheckerModal(){
+  const inputEl = document.getElementById("checkerInputBox");
+  inputEl.oninput = (e)=>{
+    state.checkerInput = e.target.value;
+    updateCheckerPreview(e.target.value); // direct DOM write — no render(), no focus loss
+    const btn = document.getElementById("checkWordBtn");
+    if(btn) btn.disabled = !/[A-Za-z]/.test(e.target.value);
+  };
+  inputEl.onkeydown = (e)=>{ if(e.key === "Enter"){ e.preventDefault(); runWordCheck(); } };
+  document.getElementById("checkWordBtn").onclick = runWordCheck;
+  document.getElementById("closeWordCheckerBtn").onclick = ()=>{ state.showWordChecker = false; render(); };
+  if(state.checkerChecked !== null){
+    const toggle = document.getElementById("checkerDefToggle");
+    if(toggle){
+      toggle.onclick = ()=>{
+        state.checkerDefOpen = !state.checkerDefOpen;
+        render();
+        if(state.checkerDefOpen) loadDefinitions().then(render).catch(render);
+      };
+    }
+  }
+}
+function runWordCheck(){
+  const raw = document.getElementById("checkerInputBox").value;
+  if(!/[A-Za-z]/.test(raw)) return;
+  state.checkerInput = raw;
+  state.checkerChecked = raw;
+  state.checkerDefOpen = false;
+  render();
+}
+
 /* In online mode, only two clients are ever allowed to drive a turn-action
    function: the player whose turn it actually is, or the host acting on
    behalf of a Computer player (playAITurn always runs on the host's phone).
@@ -2810,6 +2926,11 @@ function wireMoreWaysTrigger(){
       render();
     };
     document.getElementById("closeMoreWaysBtn").onclick = ()=>{ state.showMoreWays = false; render(); };
+    document.getElementById("wordCheckerBtn").onclick = ()=>{
+      state.showMoreWays = false;
+      state.showWordChecker = true;
+      render();
+    };
   }
 }
 function renderMoreWaysModal(){
@@ -2819,7 +2940,8 @@ function renderMoreWaysModal(){
         <h3>More Ways to Play</h3>
         <button class="btn btn-gold" id="localBtn" style="margin-bottom:12px;">Play and Pass</button>
         <button class="btn btn-outline" id="createOnlineBtn" style="margin-bottom:12px;">Create Online Game</button>
-        <button class="btn btn-outline" id="joinOnlineBtn">Join Online Game</button>
+        <button class="btn btn-outline" id="joinOnlineBtn" style="margin-bottom:12px;">Join Online Game</button>
+        <button class="btn btn-outline" id="wordCheckerBtn">Word Checker</button>
         <div class="rules-toggle" style="margin-top:14px;"><button id="closeMoreWaysBtn">Close</button></div>
       </div>
     </div>
@@ -2958,6 +3080,7 @@ function renderHome(){
     </div>
     ${state.showRules ? renderRulesModal() : ""}
     ${state.showMoreWays ? renderMoreWaysModal() : ""}
+    ${state.showWordChecker ? renderWordCheckerModal() : ""}
     ${state.showSettings ? renderSettingsModal() : ""}
     ${state.showFeedback ? renderFeedbackModal() : ""}
     ${state.showCreateOnlineModal ? renderCreateOnlineModal() : ""}
@@ -2969,6 +3092,7 @@ function renderHome(){
     document.getElementById("closeRulesBtn").onclick = ()=>{ state.showRules = false; render(); };
   }
   wireMoreWaysTrigger();
+  if(state.showWordChecker) wireWordCheckerModal();
   wireSettingsTrigger();
   wireFeedbackTrigger();
   if(state.showCreateOnlineModal) wireCreateOnlineModal();
@@ -3039,10 +3163,12 @@ function renderLobby(){
     ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
     ${state.showRules ? renderRulesModal() : ""}
     ${state.showMoreWays ? renderMoreWaysModal() : ""}
+    ${state.showWordChecker ? renderWordCheckerModal() : ""}
     ${state.showSettings ? renderSettingsModal() : ""}
     ${state.showFeedback ? renderFeedbackModal() : ""}
   `;
   wireMoreWaysTrigger();
+  if(state.showWordChecker) wireWordCheckerModal();
   if(state.online.isHost){
     document.querySelectorAll("[data-set-cpu]").forEach(b=>{ b.onclick = ()=>setSeatCPU(parseInt(b.dataset.setCpu), true); });
     document.querySelectorAll("[data-unset-cpu]").forEach(b=>{ b.onclick = ()=>setSeatCPU(parseInt(b.dataset.unsetCpu), false); });
@@ -3130,10 +3256,12 @@ function renderSetup(){
     </div>
     ${state.showRules ? renderRulesModal() : ""}
     ${state.showMoreWays ? renderMoreWaysModal() : ""}
+    ${state.showWordChecker ? renderWordCheckerModal() : ""}
     ${state.showSettings ? renderSettingsModal() : ""}
     ${state.showFeedback ? renderFeedbackModal() : ""}
   `;
   wireMoreWaysTrigger();
+  if(state.showWordChecker) wireWordCheckerModal();
   document.getElementById("dec").onclick = ()=>{ if(state.playerCount>2){ state.playerCount--; render(); } };
   document.getElementById("inc").onclick = ()=>{ if(state.playerCount<8){ state.playerCount++; render(); } };
   document.querySelectorAll(".name-input").forEach(inp=>{
@@ -3439,6 +3567,7 @@ function renderPlay(){
     ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
     ${state.showRules ? renderRulesModal() : ""}
     ${state.showMoreWays ? renderMoreWaysModal() : ""}
+    ${state.showWordChecker ? renderWordCheckerModal() : ""}
     ${state.showSettings ? renderSettingsModal() : ""}
     ${state.showFeedback ? renderFeedbackModal() : ""}
     ${state.uiCardsOpen ? renderCardsModal(cardCounts) : ""}
@@ -3447,6 +3576,7 @@ function renderPlay(){
   `;
 
   wireMoreWaysTrigger();
+  if(state.showWordChecker) wireWordCheckerModal();
   document.querySelectorAll("[data-card]").forEach(el=>{
     el.onclick = ()=>{
       const id = parseInt(el.dataset.card);
@@ -3623,6 +3753,7 @@ function renderOnlinePlay(){
     ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
     ${state.showRules ? renderRulesModal() : ""}
     ${state.showMoreWays ? renderMoreWaysModal() : ""}
+    ${state.showWordChecker ? renderWordCheckerModal() : ""}
     ${state.showSettings ? renderSettingsModal() : ""}
     ${state.showFeedback ? renderFeedbackModal() : ""}
     ${state.uiCardsOpen ? renderCardsModal(opponents) : ""}
@@ -3633,6 +3764,7 @@ function renderOnlinePlay(){
   document.getElementById("leaveGameBtn").onclick = confirmLeaveOnlineRoom;
   document.getElementById("rulesBtn").onclick = ()=>{ state.showRules = true; render(); };
   wireMoreWaysTrigger();
+  if(state.showWordChecker) wireWordCheckerModal();
   wireCardsAndScoreboardTriggers();
   wireSettingsTrigger();
   wireFeedbackTrigger();
@@ -3850,12 +3982,14 @@ function renderDailyResult(){
       </div>
     </div>
     ${state.showMoreWays ? renderMoreWaysModal() : ""}
+    ${state.showWordChecker ? renderWordCheckerModal() : ""}
     ${state.showSettings ? renderSettingsModal() : ""}
     ${state.showFeedback ? renderFeedbackModal() : ""}
     ${state.uiWordsOpen ? renderWordsModal() : ""}
     ${state.showDailyStats ? renderDailyStatsModal() : ""}
   `;
   wireMoreWaysTrigger();
+  if(state.showWordChecker) wireWordCheckerModal();
   wireSettingsTrigger();
   wireFeedbackTrigger();
   wireHistoryTrigger();
