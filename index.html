@@ -2285,18 +2285,6 @@ function checkerEvaluate(raw){
   return { word, status: "notfound" };
 }
 
-function checkerPreviewTilesHtml(raw){
-  const letters = (raw || "").toUpperCase().replace(/[^A-Z]/g, "").split("");
-  if(!letters.length){
-    return `<div class="builder-row" style="justify-content:center;"><span style="color:var(--text-muted);font-weight:600;font-size:calc(12px * var(--text-scale));">Type a word to see it in tiles</span></div>`;
-  }
-  return `<div class="builder-row">${letters.map(l => `<div class="btile">${l}</div>`).join("")}</div>`;
-}
-function updateCheckerPreview(raw){
-  const el = document.getElementById("checkerTilePreview");
-  if(el) el.innerHTML = checkerPreviewTilesHtml(raw);
-}
-
 function renderWordCheckerModal(){
   const result = state.checkerChecked !== null ? checkerEvaluate(state.checkerChecked) : null;
   const canCheck = /[A-Za-z]/.test(state.checkerInput || "");
@@ -2304,8 +2292,7 @@ function renderWordCheckerModal(){
     <div class="modal-backdrop" id="wordCheckerBackdrop">
       <div class="modal" style="max-width:420px;text-align:left;">
         <h3>Word Checker</h3>
-        <p>Type any word to see if it's valid, what it would score, and how tricky it is — handy for settling arguments over the EndLink card game.</p>
-        <div id="checkerTilePreview">${checkerPreviewTilesHtml(state.checkerInput)}</div>
+        <p>Type any word to see if it's valid and look up its definition — handy for settling arguments over the EndLink card game.</p>
         <div class="name-row" style="margin-top:10px;margin-bottom:4px;">
           <input id="checkerInputBox" value="${escapeAttr(state.checkerInput)}" placeholder="Type a word…" maxlength="24" autocomplete="off" autocapitalize="characters" spellcheck="false" />
         </div>
@@ -2342,8 +2329,7 @@ function wireWordCheckerModal(){
   const inputEl = document.getElementById("checkerInputBox");
   inputEl.oninput = (e)=>{
     state.checkerInput = e.target.value;
-    updateCheckerPreview(e.target.value); // direct DOM write — no render(), no focus loss
-    const btn = document.getElementById("checkWordBtn");
+    const btn = document.getElementById("checkWordBtn"); // direct DOM write — no render(), no focus loss
     if(btn) btn.disabled = !/[A-Za-z]/.test(e.target.value);
   };
   inputEl.onkeydown = (e)=>{ if(e.key === "Enter"){ e.preventDefault(); runWordCheck(); } };
