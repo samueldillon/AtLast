@@ -302,7 +302,7 @@
     max-width:calc(44px * var(--text-scale) * 8 + 6px * 7 + 16px);
     margin-left:auto; margin-right:auto;
   }
-  .builder-row.empty::before{ content:"Tap letters below or the Core Card, to build your word"; color:var(--text-muted); font-size:calc(12px * var(--text-scale)); font-family:'Nunito',sans-serif; font-weight:600;}
+  .builder-row.empty::before{ content:"Tap letters below or the Key Letter, to build your word"; color:var(--text-muted); font-size:calc(12px * var(--text-scale)); font-family:'Nunito',sans-serif; font-weight:600;}
   .btile{
     border-radius:10px; background:var(--tile); color:var(--tile-ink);
     display:flex; align-items:center; justify-content:center; font-family:'Fredoka',sans-serif;
@@ -2524,7 +2524,7 @@ function commitWord(){
   state.coreInsertedAt = -1;
 
   const bonus = bonusDrawAmount(word.length);
-  let msg = p.name + " played \"" + word + "\" (+" + wordPoints + "). New Core Card: " + displayLetter(state.core) + ".";
+  let msg = p.name + " played \"" + word + "\" (+" + wordPoints + "). New Key Letter: " + displayLetter(state.core) + ".";
   if(bonus > 0){
     const drawn = drawFromDeck(bonus);
     p.hand.push(...drawn);
